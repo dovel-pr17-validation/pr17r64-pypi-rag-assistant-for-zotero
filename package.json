@@ -1,0 +1,253 @@
+{
+  "name": "rag-assistant",
+  "productName": "RAG Assistant",
+  "version": "0.7.4",
+  "description": "RAG tooling, reimagined with researchers in mind: literature discovery and review via semantic search of your Zotero PDF collection",
+  "longDescription": "RAG tooling, reimagined with researchers in mind. This open-source app lets Zotero users do literature discovery and review via semantic search of their PDF collections, drawing from both classic RAG and library science. It indexes the full text of the PDFs in your Zotero library and searches it by meaning and by keyword. Ask for a topic, a title, or an author and year, and it returns a ranked bibliography of the items in your library that bear on it, with the passages that matched, one click from the PDF at that page in Zotero. Limits in your query (years, authors, tags, collections, kinds of item) become filters you can remove. Group and narrow the list, follow references and citations, pin passages, and export APA, BibTeX, RIS or a reading guide. No language model is needed; with one, local through Ollama or LM Studio or a cloud provider, it also reads harder queries, suggests next searches, names groups of results, and can answer questions from your library with citations. Works fully offline with a local model, so sensitive documents never leave your computer.",
+  "keywords": ["zotero", "pdf", "search", "semantic-search", "bibliography", "citations", "research", "literature-review", "rag", "llm", "local-first", "ollama", "open-source"],
+  "desktopName": "rag-assistant.desktop",
+  "main": "dist/electron/main.js",
+  "author": {
+    "name": "Alexander Hepburn",
+    "email": "support@quietsignalslab.com"
+  },
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero.git"
+  },
+  "homepage": "https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero",
+  "scripts": {
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "python3 -m uvicorn backend.main:app --reload --port 8000",
+    "dev:electron": "wait-on http://localhost:5173 http://localhost:8000 && electron .",
+    "dev:electron:only": "npm run build:electron && npm run dev:electron",
+    "dev": "npm run build:electron && concurrently -n frontend,backend,electron -c blue,green,magenta \"npm run dev:frontend\" \"npm run dev:backend\" \"npm run dev:electron\"",
+    "build:frontend": "cd frontend && npm run build",
+    "smoke:ui": "env -u ELECTRON_RUN_AS_NODE electron scripts/smoke-ui.cjs",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "generate:icons": "node scripts/generate-icons.js",
+    "build": "npm run build:frontend && npm run build:electron",
+    "package": "npm run build && electron-builder --publish never",
+    "package:mac": "npm run build && electron-builder --mac --publish never",
+    "package:win": "npm run build && electron-builder --win --publish never",
+    "package:linux": "npm run build && electron-builder --linux --publish never",
+    "package:all": "npm run build && electron-builder -mwl --publish never",
+    "publish": "npm run build && electron-builder -mwl --publish always",
+    "publish:mac": "npm run build && electron-builder --mac --publish always",
+    "publish:win": "npm run build && electron-builder --win --publish always",
+    "publish:linux": "npm run build && electron-builder --linux --publish always",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "axios": "^1.18.1",
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "concurrently": "^8.2.0",
+    "electron": "^44.9.1",
+    "electron-builder": "^26.15.3",
+    "js-yaml": "^4.3.1",
+    "png2icons": "^2.0.1",
+    "sharp": "^0.35.0",
+    "typescript": "^5.3.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.aahepburn.zotero-rag",
+    "productName": "RAG Assistant",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Quiet-Signals-Lab",
+        "repo": "RAG-Assistant-for-Zotero",
+        "releaseType": "release"
+      }
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!__pycache__",
+          "!*.pyc",
+          "!tests"
+        ]
+      },
+      {
+        "from": "requirements.txt",
+        "to": "requirements.txt"
+      }
+    ],
+    "mac": {
+      "extraResources": [
+        {
+          "from": "python-dist",
+          "to": "python",
+          "filter": [
+            "**/*",
+            "!**/torch/include/**"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "minimumSystemVersion": "13.0",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "writeUpdateInfo": true,
+      "contents": [
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 140,
+          "y": 340,
+          "type": "file",
+          "path": "build/dmg/README.txt",
+          "name": "Installation Instructions.txt"
+        },
+        {
+          "x": 400,
+          "y": 340,
+          "type": "file",
+          "path": "build/dmg/LICENSE.txt"
+        }
+      ],
+      "window": {
+        "width": 600,
+        "height": 500
+      },
+      "backgroundColor": "#f5f5f5"
+    },
+    "win": {
+      "extraResources": [
+        {
+          "from": "python-dist",
+          "to": "python",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signtoolOptions": {
+        "publisherName": "aahepburn"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "${productName}",
+      "differentialPackage": true
+    },
+    "linux": {
+      "extraResources": [
+        {
+          "from": "scripts/start-backend.sh",
+          "to": "start-backend.sh"
+        }
+      ],
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons",
+      "category": "Office;Education;Science;",
+      "synopsis": "RAG tooling, reimagined with researchers in mind: literature discovery and review via semantic search of your Zotero PDF collection",
+      "description": "RAG tooling, reimagined with researchers in mind. This open-source app lets Zotero users do literature discovery and review via semantic search of their PDF collections, drawing from both classic RAG and library science. It indexes the full text of the PDFs in your Zotero library and searches it by meaning and by keyword. Ask for a topic, a title, or an author and year, and it returns a ranked bibliography of the items in your library that bear on it, with the passages that matched, one click from the PDF at that page in Zotero. Limits in your query (years, authors, tags, collections, kinds of item) become filters you can remove. Group and narrow the list, follow references and citations, pin passages, and export APA, BibTeX, RIS or a reading guide. No language model is needed; with one, local through Ollama or LM Studio or a cloud provider, it also reads harder queries, suggests next searches, names groups of results, and can answer questions from your library with citations. Works fully offline with a local model, so sensitive documents never leave your computer.",
+      "desktop": {
+        "entry": {
+          "Name": "RAG Assistant for Zotero",
+          "Comment": "RAG tooling, reimagined with researchers in mind: literature discovery and review via semantic search of your Zotero PDF collection",
+          "StartupWMClass": "rag-assistant"
+        }
+      },
+      "executableName": "rag-assistant",
+      "maintainer": "Quiet Signals Lab <support@quietsignalslab.com>",
+      "vendor": "Quiet Signals Lab",
+      "packageCategory": "science"
+    },
+    "deb": {
+      "packageName": "rag-assistant",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2t64 | libasound2",
+        "libgbm1",
+        "python3 (>= 3.11)",
+        "python3-venv"
+      ],
+      "priority": "optional",
+      "recommends": []
+    }
+  }
+}

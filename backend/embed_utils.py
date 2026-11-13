@@ -1,0 +1,382 @@
+# embed_utils.py
+
+# sentence_transformers (and torch under it) is imported where a model is first
+# loaded: at module level it cost 4.3 s and 430 MB before the API answered /health.
+import gc
+import numpy as np
+import os
+import sys
+import logging
+import threading
+from typing import Any, Optional
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# Set persistent cache directory for sentence-transformers models
+# This prevents re-downloading models on every startup
+MODELS_CACHE_DIR = os.path.expanduser("~/.cache/sentence_transformers")
+Path(MODELS_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+os.environ['SENTENCE_TRANSFORMERS_HOME'] = MODELS_CACHE_DIR
+
+# Available local embedding models with different speed/quality tradeoffs
+EMBEDDING_MODELS = {
+    'bge-base': {
+        'name': 'BAAI/bge-base-en-v1.5',
+        'dimension': 768,
+        'description': 'High quality, state-of-the-art (768 dim, ~400MB)',
+        'speed': 'medium',
+        'quality': 'excellent',
+        'cloud': False,
+    },
+    'specter': {
+        'name': 'allenai/specter',
+        'dimension': 768,
+        'description': 'Optimized for scientific documents (768 dim, ~440MB)',
+        'speed': 'medium',
+        'quality': 'excellent-scientific',
+        'cloud': False,
+    },
+    'minilm-l6': {
+        'name': 'all-MiniLM-L6-v2',
+        'dimension': 384,
+        'description': 'Balanced quality and speed (384 dim, ~90MB)',
+        'speed': 'fast',
+        'quality': 'good',
+        'cloud': False,
+    },
+    'minilm-l3': {
+        'name': 'paraphrase-MiniLM-L3-v2',
+        'dimension': 384,
+        'description': 'Fastest, lowest memory (384 dim, ~60MB)',
+        'speed': 'fastest',
+        'quality': 'moderate',
+        'cloud': False,
+    },
+    # ── Multilingual models ──────────────────────────────────────────────────
+    'bge-m3': {
+        'name': 'BAAI/bge-m3',
+        'dimension': 1024,
+        'description': 'BGE multilingual, 100+ languages including Chinese/Japanese/Korean (1024 dim, ~2.3GB)',
+        'speed': 'slow',
+        'quality': 'excellent',
+        'cloud': False,
+    },
+    'bge-large-zh': {
+        'name': 'BAAI/bge-large-zh-v1.5',
+        'dimension': 1024,
+        'description': 'BGE large Chinese-optimised, strong on Chinese academic text (1024 dim, ~1.3GB)',
+        'speed': 'slow',
+        'quality': 'excellent',
+        'cloud': False,
+    },
+    'multilingual-minilm': {
+        'name': 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+        'dimension': 384,
+        'description': 'Lightweight multilingual, 50+ languages (384 dim, ~470MB)',
+        'speed': 'fast',
+        'quality': 'good',
+        'cloud': False,
+    },
+}
+
+# Default model configuration
+DEFAULT_MODEL_ID = 'bge-base'
+_current_model_id = DEFAULT_MODEL_ID
+_current_model: Optional[Any] = None  # a SentenceTransformer
+_load_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Cloud credential store
+# ---------------------------------------------------------------------------
+# Populated at chatbot initialisation time via set_embedding_credentials().
+# Keyed by provider prefix (e.g. "openai").  Thread-safe via _creds_lock.
+_embedding_credentials: dict[str, dict] = {}
+_creds_lock = threading.Lock()
+
+
+def set_embedding_credentials(provider: str, credentials: dict) -> None:
+    """Store API credentials for a cloud embedding provider.
+
+    Must be called before any cloud embedding request.  Typically invoked by
+    main.py / ZoteroChatbot at startup.
+    """
+    with _creds_lock:
+        _embedding_credentials[provider] = dict(credentials)
+
+
+def _get_embedding_credentials(provider: str) -> dict:
+    with _creds_lock:
+        return dict(_embedding_credentials.get(provider, {}))
+
+
+def get_model_config(model_id: Optional[str] = None) -> dict:
+    """Get configuration for a specific embedding model (local or cloud)."""
+    from backend.embedding_providers import CLOUD_EMBEDDING_MODELS
+    mid = model_id or _current_model_id
+    if mid in EMBEDDING_MODELS:
+        return EMBEDDING_MODELS[mid]
+    if mid in CLOUD_EMBEDDING_MODELS:
+        return CLOUD_EMBEDDING_MODELS[mid]
+    raise ValueError(
+        f"Unknown embedding model: '{mid}'. "
+        f"Local: {list(EMBEDDING_MODELS.keys())}. "
+        f"Cloud: {list(CLOUD_EMBEDDING_MODELS.keys())}."
+    )
+
+def get_current_model_id() -> str:
+    """Get the currently active model ID."""
+    return _current_model_id
+
+def get_embedding_dimension(model_id: Optional[str] = None) -> int:
+    """Get the embedding dimension for a specific model (local or cloud)."""
+    return get_model_config(model_id)['dimension']
+
+def model_device() -> str:
+    """Where the embedder, reranker and NLI model run: an NVIDIA GPU if there is one, else the CPU.
+
+    Never Apple's GPU (MPS). Its allocator keeps a cached block for every batch shape and
+    does not reuse them: indexing grew it ~0.7 GB per item until a 16 GB Mac ran out of
+    memory at about 20 items and swapped to disk, and every later item failed. It was only
+    1.5x faster than the CPU (bge-base on an M1), and its memory is shared with the RAM
+    a local LLM for the desk clerk needs.
+    """
+    import torch
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def load_embedding_model(model_id: Optional[str] = None):
+    """Load the local SentenceTransformer model, reusing cached instance if same model."""
+    global _current_model, _current_model_id
+
+    target_model_id = model_id or DEFAULT_MODEL_ID
+    with _load_lock:  # the warm-up thread and a first search must not both load it
+        if _current_model is not None and _current_model_id == target_model_id:
+            return _current_model
+        from sentence_transformers import SentenceTransformer
+        config = get_model_config(target_model_id)
+        logger.info("Loading embedding model: %s (%s)", config['name'], config['description'])
+        _current_model = SentenceTransformer(config['name'], cache_folder=MODELS_CACHE_DIR, device=model_device())
+        _current_model_id = target_model_id
+        return _current_model
+
+# Cross-encoder for re-ranking retrieved passages. Loaded on first use so
+# importing this module (and anything that imports it, such as the API) has
+# no network or model-loading side effects.
+_reranker: Optional[Any] = None  # a CrossEncoder
+# Serialises every model inference on the CPU (embedding, reranking, entailment),
+# and the loading and unloading of the reranker and NLI model.
+_inference_lock = threading.Lock()
+# Models not used for this long are unloaded, as Ollama does with the clerk's model
+# (keep_alive 30m): about 800 MB comes back while the app sits open unused.
+IDLE_UNLOAD_SECONDS = 30 * 60
+ENCODE_BATCH = 32  # sentence-transformers' own default batch
+_idle_timer: Optional[threading.Timer] = None
+_idle_lock = threading.Lock()
+
+
+def release_memory() -> None:
+    """Hand the allocator's freed pages back to the OS after a large inference.
+
+    Model inference leaves hundreds of MB of freed blocks that macOS and glibc
+    keep in the process; with repeated searches that read as a growing app.
+    """
+    import ctypes
+    try:
+        if sys.platform == "darwin":
+            ctypes.CDLL("libc.dylib").malloc_zone_pressure_relief(None, 0)
+        elif sys.platform.startswith("linux"):
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # no libc symbol: nothing to do
+        pass
+
+
+def _get_reranker():
+    """Call with _inference_lock held."""
+    global _reranker
+    if _reranker is None:
+        from sentence_transformers import CrossEncoder
+        _reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', cache_folder=MODELS_CACHE_DIR, device=model_device())
+    return _reranker
+
+
+def _touch() -> None:
+    """A model was used: unload them all after IDLE_UNLOAD_SECONDS without another use."""
+    global _idle_timer
+    with _idle_lock:
+        if _idle_timer is not None:
+            _idle_timer.cancel()
+        _idle_timer = threading.Timer(IDLE_UNLOAD_SECONDS, unload_models)
+        _idle_timer.daemon = True
+        _idle_timer.start()
+
+
+def unload_models() -> None:
+    """Drop the embedder, reranker and NLI model; each loads again on its next use."""
+    global _current_model, _reranker, _nli
+    with _inference_lock:
+        if _current_model is None and _reranker is None and _nli is None:
+            return
+        logger.info("Unloading idle models")
+        _current_model = _reranker = _nli = None
+    gc.collect()
+    release_memory()
+
+
+def warm_up(model_id: Optional[str] = None) -> None:
+    """Load the embedder and reranker ahead of the first search, which otherwise waited ~15 s for them."""
+    from backend.embedding_providers import is_cloud_model
+    try:
+        if not is_cloud_model(model_id or _current_model_id):
+            load_embedding_model(model_id)
+        with _inference_lock:
+            _get_reranker()
+        _touch()
+    except Exception as e:  # no network, no disk space: the first search reports it instead
+        logger.warning("Model warm-up failed: %s", e)
+
+
+def get_embeddings_batch(texts: list[str], model_id: Optional[str] = None) -> list[np.ndarray]:
+    """Embed a batch of texts, dispatching to cloud or local backend.
+
+    Preferred over calling get_embedding() in a loop because:
+    - For local models: a single model.encode() call is faster.
+    - For cloud models: inputs are sent in one (or few) API request(s),
+      reducing round-trips and staying within rate-limit headroom.
+
+    Args:
+        texts: Non-empty list of strings to embed.
+        model_id: Embedding model ID (local or cloud). Defaults to current.
+
+    Returns:
+        List of numpy float32 arrays, one per input text.
+    """
+    from backend.embedding_providers import (
+        is_cloud_model,
+        get_embedding_provider,
+        parse_cloud_model_id,
+        CLOUD_EMBEDDING_MODELS,
+    )
+    from backend.embedding_providers.base import EmbeddingCredentialError
+
+    if not texts:
+        return []
+
+    mid = model_id or _current_model_id
+    max_chars = 512 * 4  # rough char ceiling matching per-text truncation
+
+    if is_cloud_model(mid):
+        provider_prefix, model_name = parse_cloud_model_id(mid)
+        credentials = _get_embedding_credentials(provider_prefix)
+        if not credentials.get('api_key'):
+            raise EmbeddingCredentialError(
+                f"No API key found for '{provider_prefix}'. "
+                "Configure it in Settings → Providers."
+            )
+        provider = get_embedding_provider(provider_prefix)
+        truncated = [t[:max_chars] for t in texts]
+        vectors = provider.embed_batch(truncated, model_name, credentials)
+        return [np.array(v, dtype=np.float32) for v in vectors]
+
+    # Local SentenceTransformer path
+    model = load_embedding_model(mid)
+    config = get_model_config(mid)
+    expected_dim = config['dimension']
+    truncated = [t[:max_chars] for t in texts]
+    # One batch per lock acquisition: a whole book held the lock ~17 s (42 ms a chunk),
+    # and a search arriving meanwhile waited that long for its query embedding.
+    embeddings = []
+    for start in range(0, len(truncated), ENCODE_BATCH):
+        with _inference_lock:
+            embeddings.extend(model.encode(truncated[start:start + ENCODE_BATCH]))
+    release_memory()
+    _touch()
+
+    # Validate the first embedding to catch model misconfigurations early
+    if len(embeddings) > 0 and len(embeddings[0]) != expected_dim:
+        raise ValueError(
+            f"Embedding dimension mismatch! Expected {expected_dim}, got {len(embeddings[0])}. "
+            f"Model: {config['name']}"
+        )
+
+    return [np.array(e, dtype=np.float32) for e in embeddings]
+
+
+def get_embedding(text: str, model_id: Optional[str] = None) -> np.ndarray:
+    """Generate an embedding for a single text (local or cloud).
+
+    Thin wrapper around get_embeddings_batch() for single-text call sites
+    (query time, etc.).  For indexing many chunks, prefer get_embeddings_batch().
+
+    Args:
+        text: Text to embed.
+        model_id: Optional model ID to use (defaults to current model).
+
+    Returns:
+        numpy.ndarray: Embedding vector (dimension depends on model).
+    """
+    results = get_embeddings_batch([text], model_id)
+    return results[0]
+
+def rerank_passages(query: str, passages: list[str], top_k: Optional[int] = None) -> list[tuple[int, float]]:
+    """Re-rank passages using cross-encoder for better relevance scoring.
+    
+    Args:
+        query: The user's query
+        passages: List of text passages to rank
+        top_k: Optional limit on number of results to return
+    
+    Returns:
+        List of (index, score) tuples sorted by relevance score (descending)
+    """
+    if not passages:
+        return []
+    
+    # Create query-passage pairs for the cross-encoder
+    pairs = [[query, passage] for passage in passages]
+    
+    # One inference at a time, in small batches: the cross-encoder's attention
+    # scratch is ~1.1 GB per call at batch 32 and ~0.7 GB at 8, and concurrent
+    # calls (a reader clicking "More like this" several times) stacked those.
+    with _inference_lock:
+        scores = _get_reranker().predict(pairs, batch_size=8, show_progress_bar=False)
+    release_memory()
+    _touch()
+    
+    # Sort by score (descending) and return indices with scores
+    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+    
+    if top_k:
+        ranked = ranked[:top_k]
+    
+    return ranked
+
+
+# Natural-language inference model for the clerk's note guard. MiniLM because the
+# DeBERTa NLI models fail to load under Python 3.13 with this torch release.
+NLI_MODEL = "cross-encoder/nli-MiniLM2-L6-H768"
+_nli = None
+
+
+def entailment(premises: list[str], hypothesis: str) -> float:
+    """How strongly the best of `premises` entails `hypothesis`, from 0 to 1.
+
+    Used to check that a model-written note says only what a passage says: on test
+    notes, faithful ones scored 0.85-0.99, and notes with a wrong topic, a reversed
+    claim or an evaluative judgement scored 0.00-0.02 (docs/DESK_CLERK.md).
+    """
+    global _nli
+    premises = [p for p in premises if p and p.strip()]
+    if not premises or not hypothesis.strip():
+        return 0.0
+    # Under the inference lock like the reranker: three annotate workers (a cloud
+    # clerk) otherwise ran three NLI passes at once and their scratch memory stacked.
+    with _inference_lock:
+        if _nli is None:
+            from sentence_transformers import CrossEncoder
+            _nli = CrossEncoder(NLI_MODEL, cache_folder=MODELS_CACHE_DIR, device=model_device())
+        labels = {v.lower(): k for k, v in _nli.config.id2label.items()}
+        scores = _nli.predict([(p, hypothesis) for p in premises], apply_softmax=True)
+    release_memory()
+    _touch()
+    return float(max(row[labels["entailment"]] for row in scores))

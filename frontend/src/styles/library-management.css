@@ -1,0 +1,403 @@
+/* Library Management Panel — mirrors Scope tab design language */
+
+/* ── Panel wrapper ─────────────────────────────────────────────────────────── */
+
+.lib-panel {
+  padding: 16px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+/* ── Cloud embedding privacy warning modal ─────────────────────────────────── */
+
+.cloud-warning-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 20px;
+  animation: cwFadeIn 0.18s ease;
+}
+
+@keyframes cwFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.cloud-warning-modal {
+  background: var(--bg-main);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  animation: cwSlideUp 0.22s ease;
+}
+
+@keyframes cwSlideUp {
+  from { transform: translateY(16px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.cloud-warning-header {
+  padding: 18px 20px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.cloud-warning-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.cloud-warning-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.cloud-warning-body {
+  padding: 12px 20px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.cloud-warning-body ul {
+  margin: 8px 0 0 0;
+  padding-left: 18px;
+}
+
+.cloud-warning-body li {
+  margin-bottom: 4px;
+}
+
+.cloud-warning-model-label {
+  display: inline-block;
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: var(--notice);
+  margin-bottom: 8px;
+}
+
+.cloud-warning-footer {
+  display: flex;
+  gap: 11px;
+  justify-content: flex-end;
+  padding: 0 20px 18px;
+}
+
+/* ── Sections (flat, bottom-border only — same as .scope-section) ─────────── */
+
+.lib-section {
+  margin-bottom: 20px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  padding: 0 0 16px 0;
+}
+
+.lib-section-last {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+details.lib-advanced > summary {
+  cursor: pointer;
+  font: 500 12px/1.4 var(--font-sans);
+  color: var(--ink-3);
+}
+
+.lib-advanced .scope-section-title {
+  margin: 18px 0 4px;
+}
+
+.lib-advanced .lib-action-row {
+  margin-top: 8px;
+}
+
+.lib-hint {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.lib-hint strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.lib-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg, transparent);
+  color: var(--ink);
+}
+
+.lib-checklist {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-sm);
+}
+
+.lib-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lib-checklist label > span:first-of-type {
+  flex: 1;
+}
+
+.lib-checklist__count {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* ── Section titles — identical to .scope-section-title ───────────────────── */
+
+/* .scope-section-title is already defined globally in prompt-scaffolding.css.
+   Redefined here for self-containment when loaded independently. */
+.scope-section-title {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+.scope-section-title svg {
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+/* ── Stats Grid ───────────────────────────────────────────────────────────── */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin-bottom: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+/* One hairline row per figure, label left and number right, like a ledger. */
+.stat-card {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 7px 0;
+  text-align: left;
+}
+
+.stat-value {
+  font: 500 14px/1.2 var(--font-sans);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-value-highlight {
+  font-weight: 700;
+}
+
+.stat-label {
+  font: 500 12px/1.4 var(--font-sans);
+  color: var(--ink-4);
+}
+
+.loading-stats {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ── Select dropdown ──────────────────────────────────────────────────────── */
+
+.lib-select {
+  width: 100%;
+  padding: 8px 11px;
+  font-size: 13px;
+  border: 1.5px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-main);
+  transition: all 0.15s ease;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.lib-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-surface);
+  box-shadow: none;
+}
+
+/* ── Action row ───────────────────────────────────────────────────────────── */
+
+.lib-action-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.lib-action-row .btn {
+  flex: 1;
+  min-width: 120px;
+}
+
+.lib-cancel-btn {
+  flex: 0 0 auto;
+  padding: 11px 16px;
+  background: transparent;
+  border: 1.5px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lib-cancel-btn:hover {
+  border-color: var(--error);
+  color: var(--error);
+  background: transparent;
+}
+
+/* ── Indexing Progress ────────────────────────────────────────────────────── */
+
+.indexing-progress {
+  background: var(--bg-panel);
+  border: 1.5px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.progress-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.progress-eta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--ink);
+  transition: width 300ms ease;
+  border-radius: var(--radius-sm);
+}
+
+.progress-fill-indeterminate {
+  height: 100%;
+  width: 100%;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 11px
+  );
+  animation: progress-shimmer 1s linear infinite;
+  background-size: 40px 100%;
+}
+
+@keyframes progress-shimmer {
+  0%   { background-position: 0 0; }
+  100% { background-position: 40px 0; }
+}
+
+.progress-details {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── Spinner ──────────────────────────────────────────────────────────────── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+/* ── Responsive ───────────────────────────────────────────────────────────── */
+
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .lib-action-row {
+    flex-direction: column;
+  }
+
+  .lib-action-row .btn {
+    width: 100%;
+  }
+}

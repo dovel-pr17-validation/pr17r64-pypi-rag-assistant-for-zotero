@@ -1,0 +1,907 @@
+# Changelog
+
+All notable changes to RAG Assistant for Zotero will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.7.4] - 2026-10-31
+
+### Upgrading from 0.7.3
+Run **Library → Advanced → Update details from Zotero** once. It repairs item ids damaged by earlier metadata syncs and gives items dated before 1900 their real year. Then **Sync** to pick up PDFs that were missed before (see below). Settings, sessions, pins and the index otherwise carry over.
+
+### Fixed
+- **Data safety.** Settings, sessions and profile files are written through a temporary file, so a crash or a full disk can no longer truncate them and lose API keys. A damaged settings file is kept as `settings.json.bad`, and a damaged sessions file is an error rather than an empty history that the next save writes over. On macOS and Linux the app's data folder and `settings.json` are now readable by you alone. Failed loads no longer overwrite chat history, and saving one setting no longer sends the whole settings object.
+- **Metadata sync.** It wrote item ids as numbers, which broke scoped search, "more like this", removal from the index and exclusions for the items it touched, and it ignored changed titles, authors and years. An unreadable library now stops the sync once with an error, not once per passage.
+- **Items that were missed or wrongly indexed.** PDFs whose path does not end in `.pdf` are now indexed, and items and PDFs in Zotero's trash are skipped. Excluded items no longer count as "new", so the sync button can reach zero.
+- **First run.** If Zotero is not found, or is holding its database locked, search says so and shows the way out, instead of "Nothing in your library matches this". A new Zotero path, PDF folder or API key takes effect without a restart, the Zotero path may be the data folder, and `~` and `#` in paths work.
+- **Search.** Keyword search is up to about 75 times faster on a 62,000-passage library. It now respects limits, so a scoped item is not lost among stronger matches elsewhere. "Before 1990" no longer includes undated items, and items from before 1900 keep their year. Excluding a plural such as "organisations" works.
+- **RAG Chat.** A scoped question can read more than 8 passages of one item. Follow-ups work on the first turn and after a restart. Source numbers match the citations in the answer. Answers no longer pull you back to another session, and renaming a session sticks.
+- **Profiles.** Switching profile no longer leaves a blank window in the packaged app, and deleting the active profile no longer stops the app from starting.
+- **Full rebuild.** A PDF that cannot be read today, such as one on an unplugged drive, keeps the passages it has.
+- **Desktop shell.** Quitting on Linux stops the backend. A second launch focuses the first window instead of killing its backend. Launching no longer kills your own servers on ports 8000–8010. If the backend dies, a dialog offers Restart or Quit. Reopening right after quitting on macOS no longer fails to start. Dragging a PDF onto the window no longer replaces the app.
+- The Evidence panel starts at the top of each new item, and the window no longer scrolls sideways below 1100 pixels wide.
+
+### Security
+- Dependency updates close the open security advisories for Pillow 13, certifi, pyasn1, filelock, setuptools, Electron 44.10, vite, undici, follow-redirects and fast-uri. The certifi and Electron updates drop certificate authorities with compromised keys.
+- The backend refuses requests from web pages and from other host names. Before, any site you visited could send it requests, such as stopping an index or starting a chat. Eight unused endpoints were removed.
+
+### Changed
+- **Library panel.** Status and Sync come first; item details, the embedding model and the rebuild sit under Advanced, and a rebuild asks before it starts. Leaving the panel no longer loses track of a running sync.
+- Readability: all text meets AA contrast on every panel in both themes, citation numbers and small labels are larger, field and button outlines are easier to see, and empty-state headings use the interface font.
+- RAG Chat's Scope panel and the Language model panel use plain words. "Streaming: Enabled" is gone, since answers do not stream.
+- A banner appears while the background service is unreachable and clears itself. Errors that only reached the developer console now show in the app.
+- Settings keep typed text when another setting changes, and ask before you leave with unsaved changes.
+- Down arrow moves from the search box into the results. Clearing the context asks first.
+- Removed over 1,500 lines of unused code.
+
+## [0.7.3] - 2026-10-29
+
+### Upgrading from 0.7.2
+Nothing to run. On Linux the first launch after the update installs the changed Python packages, which takes a minute or two. The index is untouched: chromadb 1.5.9 reads an index written by 1.3.5.
+
+### Fixed
+- **macOS and Windows: stray backend servers.** After the first search, the bundled backend started another copy of itself every few seconds, up to ten, which held ports 8000–8009 and kept running after the app quit. Python's multiprocessing helper re-ran the bundle's entry script, which started a server instead of the helper; the entry script now calls `multiprocessing.freeze_support()`.
+- **Linux: the first launch failed on Ubuntu 26.04**, whose Python is 3.14. PyPika 0.48.9 could not be built there, and chromadb 1.3.5 and protobuf 4 do not run on it. The app now pins PyPika 0.51.1, chromadb 1.5.9 and protobuf 5.
+- **Linux: the first launch downloads about 1 GB instead of 3.3 GB.** torch comes from PyTorch's CPU-only index, as on macOS and Windows; PyPI's Linux torch adds 2.5 GB of CUDA libraries.
+- Linux: an app update that changes the Python requirements now installs them; before, the venv was only checked for uvicorn and an update could leave packages missing. An interrupted first install is retried on the next launch, and a venv left behind by a distribution upgrade to a newer Python is rebuilt.
+- Linux: a failed setup shows one dialog that names the cause and shows the end of pip's output, with the full output in `logs/python-setup.log` in the app's data folder. Before, up to four dialogs followed one another, one claiming the bundled Python was missing, and the advice to install compilers was wrong: every package has a prebuilt wheel.
+- The README's Linux install command matched no file (the release names it `RAG.Assistant-…deb`), and it said Python was bundled on Linux, where it is installed on first launch. The Linux packaging guide described an AppImage and an arm64 package that are not published.
+
+### Changed
+- Removed `unicorn`, a CPU emulator listed in the requirements by mistake for `uvicorn` and never imported.
+
+## [0.7.2] - 2026-10-22
+
+### Upgrading from 0.7.1
+Nothing to run. Settings, sessions, pins, the query log and the index are untouched; the profile's desk file gains a context list.
+
+### Added
+- **A context folder for RAG Chat.** "Add to context" on a result's evidence, "Add all to context" on the list and "Add pinned to context" on the reading list put items, with their strongest matched passage, into a folder shown above the RAG Chat question box. The items you tick there are the only ones RAG Chat answers from. The folder is kept per profile. This replaces "Chat about this / these / pinned", which switched screens without saying what had happened, and it needs no model.
+- **The active model in the header**, with a green or red dot: "gemma3:4b selected", or "(Not running)" when a local server is down or does not list the model; the tooltip carries the provider's own error. Checked on load, when the model settings change, and once a minute.
+
+### Changed
+- **The interface was redone for hierarchy.** One typeface for the interface (the serif stays for references), a five-step type scale, sentence-case labels, and three surfaces: the frame, the side panels and the canvas. The selected result is a card. The results toolbar is one row of one kind of control. Row actions moved to the Evidence panel, so the list no longer shifts while you arrow through it. The reading list sits folded at the top of Evidence, and "Read as" folds to one line.
+- **Search and RAG Chat share one shell.** A Search | RAG Chat switch beside the mode's own controls replaces "Switch to chat"; the same rail, panels and header serve both. RAG Chat shows the session title above the conversation and its Scope panel in the left column. "Chat" is "RAG Chat" throughout.
+- The app name moved to the right of the header beside Settings, without the logo mark. The chat column is one colour, and the context folder is framed, green once it holds something.
+- **Package descriptions come from `package.json`.** The winget manifest, the Homebrew cask, the Debian control file and the desktop entry still described the March chat app. The release jobs now take the short and long description, keywords, licence and URLs from `package.json`, and the winget release notes from this file.
+- Repository housekeeping: the PyInstaller spec and entry point live in `build/pyinstaller/`; stale Docker, AppImage, setup and test scripts, the archive folder and dead frontend modules are gone; `.env.example` lists only the variables the backend reads.
+
+### Fixed
+- Deleting a session no longer opens a native dialog, after which the window ignored clicks and the Sessions menu could not be closed. Delete asks inline, and Escape closes the menu.
+- Settings → Updates links to the latest release rather than the unordered releases list.
+- No separator rule under the last message of a conversation.
+- The docs' winget section described a job that had been replaced.
+
+## [0.7.1] - 2026-10-19
+
+### Upgrading from 0.7.0
+Nothing to run. Chat sessions, pins, the query log, settings and the index are untouched.
+
+### Added
+- **Search and chat are one workflow.** "Switch to chat" in the search header and "Switch to search" in the chat's move between them, and both keep their state. From search, **Chat about this** on a result, **Chat about these** on the list, and **Chat about pinned** on the reading list open a chat that answers only from those items; the chat says so above the conversation, with a way back. The entry points appear only when a model is set up. A chat opened this way keeps its "Chat about …" title.
+- `scripts/eval_chat.py` runs test-set queries through the live app as a first question, a follow-up and a scoped question, and checks each answer: every citation names a returned source, numbers keep their source across turns, how many sentences carry a citation, whether a reference list was written anyway, pages in brackets, headings or tables, and length.
+
+### Changed
+- **The chat's prompt was rewritten for literature review and for small models.** One system prompt of about 300 words with nine numbered rules replaces the 500-line layered one: say only what the passages say, cite each claim by number even when naming the author, say when the passages do not answer, leave out passages that do not bear on the question, say when a source *reports* another author's view rather than finding it, state disagreement between sources, mark inference as the model's own, and no reference list, since the app shows the sources. Nothing optional (tables, headings, tags) is mentioned, because a small model uses whatever is mentioned. Measured with Gemma 3 4B: no invented citation numbers, no headings or tables, every sentence cited, answers a third of their earlier length (`docs/PROMPTING.md`).
+- **A citation number names one source for the whole conversation.** Numbers were restarted at [1] on every turn while the prompt told the model to keep using earlier ones, so [2] in one answer could be a different paper from [2] in the next. Each turn's message also carries a one-line key to earlier-cited sources, so the numbers stay meaningful after long conversations are trimmed.
+- Every turn tells the model where its passages come from: the whole library, the items you chose in search, the part matching your filters, or the sources discussed so far.
+- "Legacy chat" is now "Chat" throughout the interface and settings.
+
+### Fixed
+- **A follow-up that refers back ("which of these is the earliest?") answers about the sources discussed**, not about whatever the whole library returns for the condensed question; the library is searched only when those sources hold nothing on it.
+- The model's Chicago-style reference lists, written from title, authors and year alone, are no longer asked for.
+- "[1, 2]" in an answer is linked as two citations.
+
+## [0.7.0] - 2026-10-13
+
+### Upgrading from 0.6
+Nothing to run. Your index keeps working as it is; the new PDF pipeline and the new storage layout (passage text kept outside ChromaDB, which was most of its file) apply to items indexed from now on, and a **Full Reindex** (Library and index section) applies both to everything, which is recommended but optional. The first search with a limit after upgrading builds a per-item table from the index once, which takes some seconds on a large library. Relevance bands are now calibrated, so fewer items are marked "strong" than before: the labels changed, the ranking did not. Settings, profiles, pins and the query log are untouched. Developers running from source: `pip install -r requirements.txt` and `npm install` in `frontend/`.
+
+
+### Added
+- **The reference desk is the new default.** Instead of a chat that answers, the app returns a ranked bibliography of the items in your library that bear on a query, with the sentence that matched and its page under each reference, and the evidence one click away. Three panes: ask (query, scope chips, query log), browse (the bibliography) and verify (the passages, open at the page in Zotero's reader). Items are ranked by their best passage after hybrid search and cross-encoder reranking; relevance is shown as strong, good, weak or see also, never as a percentage. The band cut-offs are fitted to the reranker on a 101-query test set (strong means an estimated 80% chance the item is relevant, good 50%, weak 20%). Design and sources: `docs/REFERENCE_DESK_PLAN.md`.
+- **Queries are read for their limits.** Years ("since 2015", "the 1970s", "pre-2000", "the last five years", and "depuis", "seit", "desde"), authors ("by Berlant", "Berlant's books"), tags, collections ("my thesis folder"), kinds of item ("chapters on …") and exclusions ("not about Deliveroo") are matched against your library's own names and shown as chips you can remove. Phrases the reader does not know stay in the search.
+- **Known items**: a DOI, ISBN, arXiv id, quoted title, or author and year pins that item above the list, with "search inside this".
+- **A language model, optionally.** With a model set up, the desk uses it for small jobs, each checked before it is shown: reading limits out of queries the app's own reader cannot fully read, next searches chosen from your own tags, and names for theme groups. Every job falls back to the app's own work when the model is missing, slow, or fails a check. Measured on Qwen3-4B, Gemma 3 4B, Llama 3.2 3B and Qwen3 1.7B on an M1 Mac: `docs/DESK_CLERK.md`. The jobs are switched in the Language model section on the rail. A cloud provider is used for them only when you allow it there: a key set up for legacy chat does not send your queries on every search. (A per-result note written by the model was built and measured, and left out: it cost several seconds per result on a local model and few notes passed the checks.)
+- **Group and narrow**: group the list by decade, kind of item, collection, first author, journal or theme; narrow to the busiest decade or collection; set the top results aside; "more like this" from any item.
+- **References and citations** for any item from Semantic Scholar, with the works already in your library marked. Only the item's DOI (or title) is sent, and only when you ask.
+- **Export**: copy or save the list as references in APA 7th, Chicago 18th (author-date or notes and bibliography), or any style installed in your Zotero (its styles folder is read, nothing is written), formatted by citeproc-js, the processor Zotero itself uses; or save as BibTeX, RIS, or a pathfinder (a Markdown subject guide with extracts and pinned passages).
+- **Pins and the query log are kept per profile** in `desk.json` next to the profile's settings.
+- `scripts/eval_clerk.py` measures a model on the clerk's jobs; `scripts/eval_ranking.py` pools, scores and calibrates the ranking against your own relevance judgments; `scripts/eval_retrieval.py` scores a test set in-process, so a pipeline change can be measured on a copy of the index before it costs anyone a reindex.
+- **Filter the references and citations** fetched from Semantic Scholar by title, author or year, or to the works already in your library.
+- **What was read from your query is shown under the search box**: the topic searched, the limits found, and whether the language model or the app's own reader read them (and, if not the model, why).
+- **Next searches leave out classification tags**: arXiv categories ("Computer Science - Machine Learning") and tags on 1% or more of the library, which were the suggestions for every search on a library of arXiv papers; and they are drawn from the listed results only, not the weak "see also" ones.
+- **The model is not asked to read a request that names one item** (a DOI, ISBN, arXiv id, or author and year): it read "Domingos 2012" as the years 2012–2012 and a DOI's digits as years.
+- `npm run smoke:ui` drives the app in the repo's Electron through both interfaces (switching through Settings and the chat's own button, a reload in each, one search, one chat turn) and fails on any console error, failed load or renderer crash.
+- `scripts/eval_desk.py` traces the desk end to end on a query set (profile folder, `eval/desk_testset.json`): what each search returned and in which bands, what was read from the query and by whom, and the model's next searches and themes with when each arrived.
+
+
+### Fixed
+- **One long, strongly matching paper no longer fills the whole result list.** Stored twice in Zotero, such a paper took every reranked passage and the list showed one item; the fused pool now holds at most eight passages of any one item.
+- **Items with no creator can be indexed** (an inner join left them out).
+- **Memory and disk**: passage text and per-item metadata live in the keyword index's SQLite file, and ChromaDB holds vectors and chunk metadata only (its own trigram index over the text was most of its file; a full reindex shrinks it). Scope counts and filters read one row per item instead of walking every chunk (14 s to milliseconds). Indexing takes the inference lock per batch instead of per book. Models load on first use and unload after 30 minutes idle; cloud SDK clients are reused; Chroma telemetry is off.
+- **Memory no longer climbs when searches overlap.** Clicking "More like this" several times in a row started a search for each click, and the ones the reader had moved past kept running: each rerank needs about a gigabyte of scratch memory, and several at once took the app to 7 GB. Searches now queue one at a time, a queued search whose reader has already moved on is skipped, the reranker works in smaller batches (peak 0.7 GB instead of 1.1), and freed memory is handed back to the system after each inference.
+- **Limits by author, tag or collection held on a large library.** They were applied to the few hundred passages retrieved first, so when the matching items were not among them the limit was quietly set aside (on a 61,000-passage library, "everything Pearl wrote before 2015" found nothing). The limit is now resolved to the matching items before retrieval. An author limit also matches a whole last name: "Pearl" no longer selects Pearlmutter.
+- **A preprint and its published version show as one result** when title and authors agree and the years are within two.
+- **No model chosen meant no model at all.** With Ollama selected and no model picked, jobs were sent to Ollama's nominal default `llama3.2`, which a machine that pulled `llama3.2:3b` does not have; every job failed quietly while the app reported a model. The first installed model is used instead, and a server with nothing installed is reported as no model.
+
+### Changed
+- **Measured models**: Qwen3 4B, Gemma 3 4B and Llama 3.2 3B through Ollama join the register (`docs/DESK_CLERK.md`); through Ollama the model stays loaded for 30 minutes between searches.
+- **Keyword search no longer takes minutes on a large library.** FTS5 only takes its optimised ranking path for its own `rank` column; ordering by an explicit `bm25()` call made a 15-word query take 124 s over 62,000 passages. Now 0.5 s, same results. The search field is a larger box that grows with the query so all of it stays in view.
+- **Plain language in the app.** The panels are titled Search, Results and Evidence; the sections on the rail are Search, Library and index, Language model and About. No more desk, clerk or catalogue in the interface: "Model's note", "Related searches" (with broader, narrower and related spelled out), "Recent searches", "Limits", "Reading guide". Text is a step larger throughout (nothing under 11px), every text colour passes AA contrast in both themes, and panel titles are real headings for screen readers.
+- Dependencies: transformers 4.57 → 5.10, sentence-transformers 5.1 → 5.6, huggingface-hub 0.36 → 1.5, anyio, urllib3, oauthlib and fsspec to their patched releases (Dependabot alerts, including model-loading `trust_remote_code` bypasses); the unused `peft` pin is gone. The frontend lockfile takes the `brace-expansion` and `source-map-js` fixes. Verified: the test suite, indexing and the 101-query evaluation under the new stack.
+- **PDFs are read and chunked properly.** Hyphenated line breaks are joined and ligatures expanded (before, keyword search missed "classification" in a third of passages); running headers, footers, page numbers and arXiv stamps are dropped; headings are recognised, so passages know their section and never mix two; chunks are packed from whole sentences to about 1,100 characters with no overlap and may cross a page break; reference lists and number-only tables are not indexed; the embedder and reranker see each passage with its work, first author, year and section named. Items already indexed keep working; a full reindex (Library and index room) applies this to them.
+- **Legacy chat** is still available: Settings → General → Interface → Legacy chat. It shares the new look and otherwise works as before.
+- **A new look**, "Reading Room": paper and ink colours, hairlines instead of shadows, catalogue-card details, a dark "after hours" theme. Settings and legacy chat use it too.
+- Structured output for model providers: Ollama, OpenAI and LM Studio receive a JSON schema; Mistral, Groq and OpenRouter a JSON mode. Repetition penalties are off for these calls, since they penalise the quotes and braces JSON is made of.
+
+### Fixed
+- **Indexing on Apple Silicon no longer runs out of memory and fills the disk.** The embedding model ran on the Mac's GPU, where PyTorch kept a cached block for every batch shape and never reused them: memory grew about 0.7 GB per item until a 16 GB Mac ran out at around 20 items, swapped to disk, and failed every later item. The embedder, the reranker and the note checker now run on the CPU (or an NVIDIA GPU where there is one). On an M1 the GPU was only 1.5× faster, and its memory is the same memory a local model needs.
+- **Indexing stops early when the machine, not a PDF, is the problem.** Five items in a row failing to embed or store now end the run with that error, instead of failing hundreds of items one by one. When nothing could be indexed, the error names the most common actual reason instead of suggesting missing PDFs.
+- Legacy chat's evidence pane inserted PDF text as raw HTML; it is now shown as text.
+- Legacy chat's sources no longer show an invented relevance percentage or load site icons from Google.
+- Settings named the wrong licence; the project is GPL-3.0.
+
+## [0.6.0] - 2026-10-10
+
+### Fixed
+- **The Linux app starts again on Ubuntu 24.04 and later.** It aborted at launch with "The SUID sandbox helper binary was found, but is not configured correctly". The package's install script still pointed at `/opt/RAGAssistant`, the folder name before the 0.4.3 rename, so it had silently done nothing since then. Earlier releases ran anyway because the app switched the Chromium sandbox off at startup, and Electron 44 now checks the sandbox before that switch takes effect. The package now uses electron-builder's maintained install script, which finds the real folder, installs the bundled AppArmor profile that Ubuntu 24.04 needs, makes `chrome-sandbox` setuid only where user namespaces are unavailable, and adds a `rag-assistant` command to `/usr/bin`. Reinstalling repairs an affected install.
+- **Large libraries no longer exhaust memory** (#86): several operations loaded every chunk of the vector store into Python at once, which on a 2.6-million-chunk library grew the backend to 58 GB and got it killed. The keyword (BM25) index now lives on disk in SQLite FTS5 and is updated as items are added or removed, so there is no rebuild at the end of indexing and nothing to load on the first search. Item inventories, filter counts, deletes and the metadata migration page through the store instead of fetching it whole.
+- **Long books index again** (#86): an item whose chunks exceeded ChromaDB's maximum batch size failed with "Batch size ... is greater than max batch size". Adds are now split to the limit the database reports.
+- **"Sync Metadata" no longer corrupts the index**: since v0.4.7 the sync looked up each item by fetching the whole library and taking the first row, so every chunk was stamped with the first item's title, authors, tags and year. It now looks items up by id and reads the library once. If you have used Sync Metadata on 0.4.7 or later, run a full reindex.
+- **The app works when port 8000 is taken**: the backend already moved to the next free port, but the window kept talking to 8000. The backend's real address is now handed to the page at load.
+- **Indexing progress reaches 100%**: PDFs with no text layer (scanned images) were never counted, so the progress bar stalled short of the total. They are now reported as skipped with a reason.
+- **A full reindex replaces an item's chunks** instead of failing on the existing ids.
+- **API errors are HTTP errors**: endpoints answered `200 {"error": ...}` and parts of the UI treated that as success. Failures now return 4xx/5xx with a `detail` message that the UI shows.
+- **Switching profile or embedding model while indexing is refused** (409) instead of swapping the index out from under the running job.
+- **The health endpoint checks the Zotero database the active profile is configured to use**, not the default location.
+- **Linked PDFs outside the Zotero storage folder can be opened** when they were indexed from there (e.g. ZotMoov).
+- **Backend logs survive a crash**: on Linux they went to `/tmp` and were overwritten on each launch (#86). All platforms now append to `logs/backend.log` under the app's user data folder, keeping one previous generation past 10 MB.
+
+### Changed
+- **Linux package metadata:** the real maintainer and vendor instead of a placeholder address, the `science` section, menu categories Office, Education and Science, and a desktop name so Wayland desktops show the right icon for the running window. The package now declares everything it needs, including `python3 (>= 3.11)`, `python3-venv` and `xdg-utils`, so `apt install ./<file>.deb` sets up a fresh system completely. Ubuntu 22.04, whose Python 3.10 could never install the app's pinned libraries, is now refused at install time with that reason instead of failing on first launch; the app's own messages now say Python 3.11 instead of 3.8.
+- The backend uses the standard logging module throughout instead of `print`, and importing the API module no longer loads models or touches the profile directory, which makes it testable.
+- Removed the `rank-bm25` dependency, the in-memory BM25 index and its JSON corpus (deleted on first start), the broken Google Books endpoint, the deprecated `/api/ollama_status` endpoint, an unused Electron auth token, and the pre-React chat tab sources.
+- Continuous integration: GitHub Actions now runs the backend tests, the renderer type-check and lint, and the full build on every push and pull request. The renderer build type-checks before bundling; ESLint 9 has a configuration again.
+- The two indexing workers (full and incremental) are one worker with a per-item skip path; `collection`-scoped indexing is still not supported, exclusions are the way to narrow a run.
+- **macOS 13 (Ventura) is now the minimum.** Electron 44 dropped macOS 12. The app ships for Apple Silicon only, every M1 Mac runs macOS 13 or later, and Apple stopped patching Monterey in 2024. A Mac still on macOS 12 keeps 0.5.2: the update manifest carries the minimum OS version and the updater skips releases its host cannot run.
+
+### Security
+- **Electron 39 → 44.7.0** (Chromium 142 → 152, Node 22 → 24). Electron 39 left support in May 2026 and had received no Chromium security fixes since. This closes the four Electron advisories (GHSA-hq2x-r82h-9wj4, GHSA-gr2m-v5gq-v685, GHSA-j84w-jfhq-vhvj, GHSA-9qh4-3jw8-366w) and the build-time chain under the `electron` package (extract-zip, @electron/get, global-agent, roarr, sprintf-js). None of the four was reachable in this app (new windows are denied, no webview, no custom protocol handlers); the Chromium gap was the real exposure.
+- External links opened from the app are limited to `http` and `https` URLs. Anything else handed to the system opener is dropped and logged.
+- Build-time dependency advisories that needed no major bump are cleared (brace-expansion, fast-uri, joi, http-cache-semantics, sharp, shell-quote); electron-builder moved from 26.15.3 to 26.17.0 within its existing range as part of this. The one carried over is `sprintf-js` under electron-builder's `@electron/get` 3, which has no fix in any electron-builder 26.x and only runs at packaging time.
+
+## [0.5.2] - 2026-09-09
+
+### Changed
+- **Licence is now GPLv3**: RAG Assistant for Zotero is licensed under the GNU General Public License v3.0 or later. Releases up to and including v0.5.1 remain under Apache 2.0.
+
+### Fixed
+- **Indexing no longer crashes on non-English Windows** (#79): indexing could fail with `'charmap' codec can't encode character`. The earlier fix for this class of bug covered console output only; file writes still used the legacy Windows code page. The backend now runs in Python UTF-8 mode, and profile/session files are written as UTF-8 explicitly. Indexing errors also name the file and line they came from, so future reports can be traced.
+- **Scope filtering by Collection now filters correctly** (#75): selecting a collection matched any collection whose name merely *contained* it, so picking "NLP" also pulled in everything filed under "NLP Interpretability" — 19 items instead of 4 on a test library. Collections and tags are now matched as whole entries.
+- **Scope filtering by Tag no longer returns zero items** (#75): the item counter used a second, case-sensitive copy of the filter logic, so a tag that matched fine during a search reported "0 items in scope". The duplicate has been removed.
+- **Corrected the advertised macOS requirement**: the app declared macOS 11 as its minimum but has shipped an Electron runtime requiring macOS 12 since v0.5.0, so it could be installed on macOS 11 and then fail to launch. The installer now states macOS 12 correctly. No macOS 12+ user is affected.
+- **The Scope panel no longer shows a stale count**: when a count request failed it kept the previous number on screen, making a broken filter look identical to no filter at all. It now reports the error, and explains when a filter matches nothing because the tag or collection was changed in Zotero after indexing.
+
+### Security
+- Cleared 39 of 41 outstanding dependency advisories, including 3 critical and 17 high. Removed `electron-icon-builder`, an unused build dependency that accounted for 9 of them — several with no fixed version available upstream.
+- Updated electron-builder to 26, electron-updater to 6.8.9, axios, js-yaml, sharp, react-router, postcss, vite and pyasn1.
+- Two advisories remain, both requiring an Electron major upgrade, which is deferred to a future release. `transformers` and `chromadb` are held back deliberately; the reasoning is recorded in `requirements.txt`.
+
+## [0.5.1] - 2026-07-28
+
+### Added
+- **Signed and notarized macOS builds**: The macOS app is now code-signed with an Apple Developer ID certificate and notarized by Apple. Gatekeeper opens it normally — users no longer see the "unidentified developer" warning or have to remove the app from quarantine before first launch.
+
+### Changed
+- **Automated Homebrew and winget releases**: Tagged releases now automatically update the Homebrew tap cask and open a winget-pkgs pull request, so `brew upgrade` and `winget upgrade` pick up new versions without manual manifest maintenance.
+
+## [0.5.0] - 2026-07-14
+
+### Added
+- **Exclude items from indexing (issue [#52](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/issues/52))**: A new **Excluded from Indexing** section in the Library panel lets you skip items from the vector index by **collection**, **tag**, or **item type** (e.g. keep ebooks out of search). A segmented Collections / Tags / Item type selector with a live search field shows one list at a time, with a running summary of all active rules. An item is skipped if it matches *any* rule on *any* axis, even when it is also filed in a collection you keep. Saving applies immediately — matching items are removed from the index without a reindex; clearing the rules and running **Sync Library** restores them. Rules are persisted per profile.
+- **Dark mode**: A **Dark mode** toggle in Settings → General → **Appearance** switches the interface to a warm-charcoal dark theme. The choice applies instantly and is persisted per profile. Implemented on the existing CSS-variable design system; several components that previously fell back to hardcoded light colours (nav bar, chat input, Active Model cards, active tab, sidebar) were migrated onto theme tokens.
+
+### Fixed
+- **Indexing crash on CJK Windows (issues [#37](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/issues/37), [#61](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/issues/61))**: On Chinese/Japanese/Korean Windows, the console defaults to a legacy code page (cp936/gbk, cp932), so `print()`ing any non-ASCII character during indexing (an emoji, a CJK model path or PDF text) raised `UnicodeEncodeError` and killed the whole indexing run. `backend/main.py` now reconfigures `stdout`/`stderr` to UTF-8 (`errors="backslashreplace"`) at startup, covering every print site in the server process.
+- **Electron auto-updater IPC error in development**: `setupAutoUpdater()` returned early in dev mode *before* registering its IPC handlers, so the renderer's updater hook logged `No handler registered for 'get-update-status'`. Only the update *scheduling* is now dev-gated; the IPC handlers always register (each guards dev mode internally).
+
+### Security
+- **Python dependency updates** (audited via pip-audit/OSV; resolves 18 of 25 known advisories with no compatibility regressions):
+  - `starlette` 1.0.1 → 1.3.1 (Dependabot [#55](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/55)) — fixes 4 advisories; compatible with pinned `fastapi` 0.134.0
+  - `pillow` 12.2.0 → 12.3.0 (5 advisories), `click` 8.3.1 → 8.3.3, `filelock` 3.20.0 → 3.20.3, `orjson` 3.11.4 → 3.11.6, `pyasn1` 0.6.1 → 0.6.3, `PyMuPDF` 1.26.6 → 1.26.7, `setuptools` 80.9.0 → 83.0.0
+  - **Held back deliberately** (unfixable without a risky major bump and not reachable in this app's usage): `transformers` 5.x (Dependabot [#62](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/62); would break `sentence-transformers` and force a huggingface-hub major bump; open CVEs require loading untrusted models), the `protobuf` < 5 cap, and `chromadb` (CVE requires the Chroma HTTP server, which the app does not run). See the note at the top of `requirements.txt`.
+- **npm / build-tooling dependency updates** (dev/build-time only — not shipped to users): `shell-quote` → 1.10.0 (Dependabot [#51](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/51)) and `js-yaml` → 4.3.0 ([#63](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/63), [#60](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/60)). **Deferred:** the `tar`/`electron-builder` bump ([#57](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/57)) needs a major `electron-builder` bump (24 → 26) with packaging-time-only CVEs; the `esbuild` advisory ([#54](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/54)) has no clean resolution on the current Vite 7 line and is a dev-server-only (Windows) issue, so it will be picked up when Vite ships a patched esbuild.
+
+## [0.4.8] - 2026-06-08
+
+### Added
+- **Configurable evidence snippet limit (discussion [#43](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/discussions/43))**: A new **Advanced** tab in Settings exposes an "Evidence snippets per query" selector. Choose from Auto (default — scaled to the active model's context window, same as before), 4, 6, 8, 10, 12, 16, 20, or 30 snippets. Setting a fixed value overrides the automatic tier-based limit while proportionally adjusting the underlying fetch and rerank parameters so the pipeline can actually reach the target. Particularly useful for local/Ollama users, where the automatic default is 6 (conservative for unknown context windows) but the model may comfortably handle more. The setting is persisted per profile. Setting a high value on a small-context model (< 16k tokens) may cause context overflow — this is documented in the UI hint.
+- **Multilingual embedding model support (issue #37)**: Three new local embedding models are now available in the Library → Embedding Model selector:
+  - `BAAI/bge-m3` (1024 dim, ~2.3 GB) — BGE multilingual supporting 100+ languages including Chinese, Japanese, and Korean. Natural upgrade path from the default `bge-base` (same BGE family).
+  - `BAAI/bge-large-zh-v1.5` (1024 dim, ~1.3 GB) — Chinese-optimised BGE model for users with primarily Chinese-language Zotero libraries.
+  - `paraphrase-multilingual-MiniLM-L12-v2` (384 dim, ~470 MB) — Lightweight multilingual option supporting 50+ languages.
+  - All three models download automatically via sentence-transformers on first use. No additional Python dependencies are required.
+  - **Known limitation:** The cross-encoder reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) is English-only and is not replaced in this release. Reranking quality on non-English text will be reduced; dense retrieval quality is unaffected.
+
+### Fixed
+- **BM25 tokenization broken for CJK text (issue #37)**: The BM25 sparse retrieval index used `text.lower().split()`, which produces whole sentences as single tokens for Chinese, Japanese, and Korean text (these scripts have no word-boundary whitespace). BM25 scores were effectively zero for all CJK queries. A `_tokenize_for_bm25()` helper now uses a compiled Unicode regex to insert spaces around every CJK character before splitting, producing character-level tokens. This is the standard approach for CJK bag-of-words retrieval and requires no additional dependency. Applied consistently to both index building (`build_bm25_index`) and query time (`query_bm25`). Existing BM25 index files will be rebuilt automatically on the next "Sync Library" run.
+- **Follow-up answers regress to a new question (issue #35)**: On turn 2+, fresh retrieval evidence was silently discarded, leaving the model with no context but a system prompt that says "use only provided context". GPT-4o would respond by generating a new question instead of an answer. Evidence is now injected into every follow-up turn via `AcademicPrompts.build_hybrid_user_message`, framing it as supplementary evidence for a follow-up exchange.
+- **Context history evicts first-turn evidence anchor (issue #37 / trim bug)**: `trim_messages_for_context` previously used a reverse-only iteration that could silently drop the first user+assistant exchange — the turn that carries the bulk of library evidence. Replaced with a pinned-anchor + sliding-tail algorithm: the first exchange is always retained; only middle messages are evicted when the context budget is exceeded.
+- **Dynamic context budget replaces hardcoded `max_chars=12000`**: `ZoteroChatbot` now computes the character budget from the active model's declared context window (60 % of window × 4 chars/token, capped at 400 000 chars). Falls back to 24 000 chars when the model context length cannot be determined. Eliminates context overflow on small models and underutilisation on large ones.
+- **Query condenser false positives on comparative questions**: `should_condense` was triggering on any short query that contained comparison keywords (`compare`, `overlap`, `versus` …). A user asking "How does Piaget compare to Vygotsky?" on turn 2+ would have their query condensed into something about the prior conversation topic. Removed the `(has_comparison AND is_short)` trigger — comparative language alone is not a dependency signal.
+- **Query condenser false negatives from trailing punctuation**: Queries like "Can you elaborate on that?" never triggered anaphora detection because the word-boundary check `q.endswith(" that")` failed on `"that?"`. Query is now stripped of trailing punctuation before all word-boundary tests.
+- **Query condenser condensing before any assistant response exists**: `should_condense` previously fired after only one user turn with no prior assistant reply. Guard strengthened to require at least one completed exchange (user AND assistant) before condensation is attempted.
+- **Query condenser hallucination guard**: After condensation, if the content-word overlap between the original query and the condensed version is below 15 %, the condenser falls back to the original. Prevents a rare LLM hallucination from producing an off-topic retrieval query.
+
+### Removed
+- **Database Migration UI removed from Library tab**: The "Database Migration" section (version check, migrate button, status indicators) has been removed from the Library management panel. All existing libraries are already on the current metadata format; the one-time migration path is no longer needed. `MigrationProvider`, `MigrationContext`, and the migration banner have been unwired from the app shell.
+
+### Security
+- **Dependency updates** (Dependabot PRs [#29](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/29)–[#36](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/36), [#40](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/40), [#44](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/44)–[#46](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/pull/46)):
+  - `starlette` 0.49.3 → 1.0.1 — fixes malformed `Host` header vulnerability; required bumping `fastapi` to 0.134.0 to support starlette 1.x
+  - `fastapi` 0.121.2 → 0.134.0 — required to allow starlette ≥ 1.0
+  - `axios` 1.13.2 → 1.17.0 (Electron/root)
+  - `react-router` / `react-router-dom` 7.9.6 → 7.17.0 (frontend)
+  - `idna` 3.11 → 3.15
+  - `pillow` 12.0.0 → 12.2.0
+  - `Pygments` 2.19.2 → 2.20.0
+  - `python-dotenv` 1.2.1 → 1.2.2
+  - `requests` 2.32.5 → 2.33.0
+  - `urllib3` 2.3.0 → 2.7.0
+  - Frontend dev deps (`vite`, `rollup`) patched via `npm audit fix`
+
+## [0.4.7] - 2026-05-06
+
+### Added
+- **Source card action buttons**: Replaced icon-only buttons in the Sources panel with labelled text buttons for clarity
+  - Full service names displayed: "Open PDF", "Google Scholar", "Google Books", "Semantic Scholar"
+  - Google Scholar, Google Books, and Semantic Scholar buttons now display site favicons fetched via Google's favicon proxy service
+  - Uses the system UI font (`system-ui, sans-serif`) at 11 px for a clean, neutral appearance
+  - Favicon images hide gracefully on load failure
+- **Cloud Embedding Models**: Support for OpenAI Embeddings API as an embedding backend (resolves [#27](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/issues/27) Feature 1)
+  - New `backend/embedding_providers/` package with abstract base class and OpenAI implementation
+  - Automatic batching (up to 2 048 texts per API call) with exponential-backoff retry on rate-limit errors
+  - Available models: `openai:text-embedding-3-small` (1 536 dims) and `openai:text-embedding-3-large` (3 072 dims)
+  - Cloud model IDs are sanitised (`:` → `-`) before use as ChromaDB collection-name suffixes
+  - Privacy warning modal shown in the UI before switching to a cloud embedding model
+  - OpenAI API key is passed through from provider settings at chatbot initialisation
+
+### Fixed
+- **Chat window top border**: Removed a persistent empty `<div>` wrapper in `ChatView` that created a visible strip at the top of the chat panel; the error banner container now only renders when there is an active error
+- **Metadata filter extraction without a provider**: `MetadataExtractor` now extracts explicit metadata patterns (year ranges, `after YYYY`, `before YYYY`, `tagged "…"`, `in "…"`) via a regex pre-pass that runs regardless of whether an LLM provider is configured
+- **Metadata migration — lazy item fetch**: `MetadataMigration._migrate_batch` now fetches Zotero item metadata on demand per unique item instead of requiring a bulk pre-fetch; avoids a crash when item objects do not support dict-style subscript access
+- **Google provider — invalid API key not detected**: `InvalidArgument` exceptions thrown by `genai.list_models()` (indicating a bad API key) are no longer swallowed by the dynamic-discovery fallback; they propagate to the outer handler so `validate_credentials_and_list_models` correctly returns `valid: False`
+- **LM Studio / Single-Provider — No Models Shown**: Fixed issue where users with only one provider configured (e.g. LM Studio) would see an empty model list that never populated unless a second provider was also enabled
+  - Empty model lists were cached permanently; the app now retries fetching models whenever settings change
+  - Switching providers now always fetches a fresh model list instead of reusing a potentially stale empty cache
+  - Added a ↻ refresh button next to the Model label for manual on-demand reload
+  - Fixes [#28](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/issues/28)
+- **OpenRouter / Cloud Provider — No Models Shown**: Fixed issue where users who enabled OpenRouter (or any cloud provider) while Ollama was the default active provider would see an empty model list and receive a `ProviderConnectionError` pointing at Ollama even after disabling it
+  - Backend now auto-switches `activeProviderId` to the first enabled provider when the stored active provider is disabled, both on startup and when settings are saved
+  - Frontend (`ActiveModelPanel`) now auto-switches the provider dropdown to the first configured provider when the current selection is disabled or has no credentials
+  - Fixes [#26](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/issues/26)
+- **OpenRouter `list_models` empty result**: `list_models` now filters out entries with no model ID and falls through to the hardcoded fallback list when the API returns nothing useful
+
+## [0.4.6] - 2026-04-24
+
+### Added
+- **GitHub Models Provider**: Users with a GitHub Copilot subscription can now connect via a dedicated "GitHub Models" provider (contributed by [@ComePerin](https://github.com/ComePerin))
+  - Hardcodes the GitHub Models base URL — no manual endpoint configuration needed
+  - Labels the credential field "GitHub Token" for clarity
+
+### Fixed
+- **ZotMoov / Linked-File PDF Paths**: Correctly resolves PDF paths for attachments stored outside the default Zotero storage directory (e.g. via ZotMoov)
+  - `storage:` paths use existing stored-file logic (unchanged)
+  - Absolute paths are used as-is
+  - `attachments:` paths are joined with the configured storage directory
+  - Fixes [#17](https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/discussions/17)
+- **SourcesPanel API fetch**: Fixed missing `apiFetch` import that caused the Sources panel to fail to load
+- **OpenAI-Compatible Model Listing**: Added raw HTTP fallback when the OpenAI SDK cannot parse non-standard model list responses (e.g. plain arrays instead of `{"data":[...]}`)
+  - Also normalises Azure ML resource-path model IDs to simple names (e.g. `azureml://…/gpt-4o/versions/2` → `gpt-4o`)
+
+### Documentation
+- Revised README with improved project description, privacy note for local model usage, and Homebrew / winget installation instructions
+- Corrected Ollama installation formatting in README
+
+## [0.4.5] - 2026-03-22
+
+### Added
+- **Custom Endpoint Support**: OpenAI-compatible providers (OpenAI, Mistral, Groq, OpenRouter) now support optional custom endpoint configuration
+  - Enables Azure OpenAI, proxy servers, and custom deployments
+  - Backward compatible: defaults to standard endpoints when not configured
+- **Startup Progress Indicator**: Application now displays a splash screen immediately on launch with progress updates
+  - Shows real-time progress during first-run AI model downloads
+  - Prevents users from launching multiple instances due to apparent unresponsiveness
+- **Custom PDF Storage Directory**: New optional setting to specify a custom Zotero PDF storage folder
+  - Useful when PDFs are stored on a separate drive or non-default location
+  - Leave blank to use the default location next to the database file
+- **Semantic Scholar Search**: Added Semantic Scholar search button alongside existing Google Scholar button in the Sources panel
+- **Package Manager Distribution**: Added documentation for Homebrew tap (macOS) and winget (Windows) distribution
+
+### Changed
+- **Save & Test Button**: API key testing now automatically saves settings first, eliminating "test failed because you didn't save" confusion
+- **Update Notice UX**: Manual update notification now displays in reassuring green with clear messaging that profiles, embeddings, and settings persist across updates
+- **Windows Startup Wait**: Increased initial process-alive check delay to 3s on Windows (vs 1.5s elsewhere) to accommodate PyInstaller self-extraction time
+- **Ollama Status Indicator**: Removed the Ollama status indicator from the top navigation bar for a cleaner interface
+
+### Fixed
+- **Syncing Stuck at 0%**: Improved error detection and messaging when Zotero database is locked
+  - Now shows specific message: "Database is locked — please close Zotero completely before syncing"
+  - Network/process failures during sync now display a visible error message instead of silently disappearing
+- **Custom Model List (OpenAI)**: Fixed bug where all curated GPT models were returned regardless of what the API actually provides
+  - Model list now accurately reflects only models available on your account
+  - Changing API key or base URL now clears the cached model list, triggering a fresh fetch
+- **License Inclusion**: macOS DMG now includes correct Apache 2.0 license file (was incorrectly showing MIT)
+- **DMG Installation Files**: Fixed macOS DMG to include Applications folder link, Installation Instructions, and LICENSE file
+- **Sound Notifications**: Fixed TypeScript errors preventing sound notification settings from saving properly
+- **Windows Port Cleanup**: Port cleanup on startup now verifies process name before killing, preventing accidental termination of unrelated applications on ports 8000–8010
+
+### Removed
+- **Intel Mac Builds**: Removed x64 (Intel) macOS builds - now only building for Apple Silicon (arm64)
+  - Intel Macs can still run the app via Rosetta 2
+- **Windows 32-bit (ia32) Builds**: Removed ia32 build targets — only x64 is supported, consistent with the 64-bit PyInstaller backend
+
+## [0.4.3] - 2026-02-22
+
+### Changed
+
+- **Trademark Compliance Rebrand**: Renamed application to comply with Zotero trademark requirements
+  - Display name: "RAG Assistant for Zotero"
+  - Product name: "RAG Assistant"
+  - Executable: `rag-assistant` (was `zotero-rag-assistant`)
+  - Package name: `rag-assistant` (was `zotero-rag-assistant`)
+  - Repository: `RAG-Assistant-for-Zotero` (was `Zotero-RAG-Assistant`)
+  - Installer naming: `RAG-Assistant-{version}-{platform}-{arch}.{ext}`
+  - **⚠️ IMPORTANT**: Existing users need to rename their app data folder (see migration instructions in release notes)
+
+### Technical
+
+- Updated all installer filenames across macOS, Windows, and Linux
+- Updated 50+ documentation files with new naming conventions
+- Updated GitHub URLs in Settings panel and documentation
+- Regenerated package-lock.json to reflect package name change
+
+## [0.4.2] - 2026-02-20
+
+### Added
+
+- **Provider-Aware Dynamic Retrieval Limits**: Retrieval caps now scale automatically based on active model's context window
+  - Five scaling tiers: 1.0x (default/unknown), 2.0x (32k), 3.0x (100k), 4.0x (200k), 5.0x (1M+)
+  - Maximizes utility of large-context models (Gemini 1.5 Pro, Claude Opus, GPT-4 Turbo)
+  - Maintains conservative defaults for local models without known context limits (Ollama, LM Studio)
+  - Preserves broad/focused mode distinction for diversity control
+  - Example: Gemini 1.5 Pro (2M context) retrieves 30-50 snippets instead of 6-10
+  - Example: Claude Opus (200k context) retrieves 24-40 snippets instead of 6-10
+  - Backward compatible: Unknown context defaults to 1.0x multiplier (no change for Ollama)
+
+### Changed
+
+- Retrieval pipeline now queries provider for model context_length on first chat
+- Updated Technical Details section in README to reflect dynamic scaling behavior
+
+### Technical
+
+- Added `get_active_model_context_length()` method to query provider capabilities
+- Added `get_retrieval_limits(is_focused)` method with tiered scaling logic
+- Comprehensive test suite with 13 tests covering all scaling tiers and edge cases
+
+## [0.4.1] - 2026-02-20
+
+### Fixed
+
+- **Linux Remote Desktop Support**: Fixed renderer crashes when launching from desktop menu in Remote Desktop environments
+  - Added `--disable-gpu-sandbox` flag to desktop launcher for GPU/sandbox compatibility
+  - Increased backend startup timeout from 10s to 30s for slower Remote Desktop sessions
+  - Improved backend process detachment using shell wrapper to avoid Chromium sandbox restrictions
+  - Added automatic backend wrapper permission setup in post-install script
+- **Linux Backend Startup**: Resolved backend process being killed immediately after spawn
+  - Implemented detached launch mechanism with `setsid` and `nohup` in wrapper script
+  - Added comprehensive backend health check with extended retry logic
+  - Improved initialization flag to prevent premature app quit during startup
+
+## [0.4.0] - 2026-02-17
+
+### Added
+- **Metadata Filtering System**: Filter retrieved chunks by publication date, tags, and collections
+  - Date range filters (before/after specific years)
+  - Multi-select tag and collection filters with "match any" or "match all" logic
+  - Filters apply to retrieval pipeline before context is sent to LLM
+- **Retrieval Fusion (RRF)**: Reciprocal Rank Fusion combines filtered semantic results with pure semantic results
+  - Ensures relevant papers aren't completely excluded by overly strict filters
+  - Configurable balance between filtered and unfiltered results
+- **Multi-Tab Sidebar**: Reorganized interface into Chat, Library, and Prompts tabs
+  - Chat tab: Conversation history with "Start New Session" button
+  - Library tab: Indexing controls and metadata sync
+  - Prompts tab: Academic prompt scaffolding and Scope panel
+- **Scope Panel Integration**: Moved from modal to dedicated Prompts tab
+  - Persistent UI for search mode and context length selection
+  - Renamed "Original" mode to "Semantic only" with clearer descriptions
+- **LM Studio Provider**: Official support for LM Studio local model server
+  - Auto-discovery of available models via /v1/models endpoint
+  - Optimized system prompts for local models
+  - Configurable base URL (default: http://localhost:1234)
+- **Dynamic Model Discovery**: Ollama and LM Studio automatically fetch available models
+  - Real-time model list updates from provider APIs
+  - Reduces configuration overhead for local model users
+- **AI Reasoning Display**: View model's chain-of-thought reasoning for supported providers
+  - Toggle button to show/hide reasoning panels
+  - Formatted markdown rendering of reasoning steps
+  - Works with OpenRouter, OpenAI o1/o3 models
+- **Semantic Scholar Integration**: Automatic metadata enrichment during indexing
+  - Fetches missing abstracts, publication years, and citation counts
+  - Improves metadata quality for filtering and search
+- **Metadata Sync Feature**: Update metadata without re-embedding
+  - Syncs titles, authors, tags, collections, dates from Zotero database
+  - Preserves existing embeddings and chunk data
+  - Provides detailed sync statistics
+- **OCR Documentation Note**: Explains why scanned PDFs without OCR cannot be indexed
+
+### Changed
+- **Settings Panel Redesign**: Reorganized into tabbed interface
+  - General: API keys, base URLs, embedding model selection
+  - Advanced: Temperature, context length, performance tuning
+  - About: Version info, links, credits
+- **ChromaDB Metadata Schema**: Upgraded to version 2
+  - Tags and collections stored as pipe-separated strings
+  - Year field now integer (0 for unknown dates)
+  - Enables efficient metadata filtering queries
+- **Metadata Migration Architecture**: Complete overhaul with pre-caching
+  - Pre-loads all Zotero items at startup for O(1) lookups
+  - Bidirectional sync: vector DB → Zotero and Zotero → vector DB
+  - Graceful handling of missing items and orphaned embeddings
+- **Linux Packaging**: Simplified to .deb files only (removed AppImage, tar.gz)
+- **Application Icon**: Redesigned with Zotero brand colors
+  - White background, red document stack, purple AI network
+  - Matches Zotero's official color scheme
+
+### Fixed
+- **Metadata Sync Endpoint**: Fixed 500 error by adding logger initialization
+- **ChromaDB Indexing**: Fixed None value rejection errors
+  - Year defaults to 0, page numbers safely handled with get()
+  - Prevents "failed to extract enum MetadataValue" errors
+- **Profile System**: Verified isolation and persistence
+  - Default profile at ~/.zotero-llm/profiles/default/ working correctly
+  - Settings, sessions, vector DB properly isolated per profile
+- **Linux Backend Stability**: Multiple fixes for path handling and binary compatibility
+  - Improved error messages for missing Zotero database
+  - Better handling of non-existent file paths
+- **Sessions Context**: Fixed backend integration for chat history persistence
+  - Debounced saves prevent race conditions
+  - Sessions properly load on app startup
+
+## [0.3.2] - 2026-01-30
+
+### Changed
+- **Provider Integration**: Replaced Perplexity provider with Mistral AI
+  - Removed PerplexityProvider class and all Perplexity-specific code
+  - Added MistralProvider with OpenAI-compatible API
+  - Updated frontend, tests, and documentation
+  - Available models: mistral-large-latest, mistral-medium-latest, mistral-small-latest, open-mistral-nemo, open-mixtral-8x7b
+- **CI Build Process**: Updated macOS Intel builds to handle PyTorch compatibility
+  - Intel Mac CI runners use torch==2.2.2 for building (last version with x64 wheels)
+  - Bundled apps for Intel Macs continue to work correctly
+  - Security risk isolated to CI build environment only
+
+### Security
+- **PyTorch Version**: Updated to `torch>=2.6.0` to address CVE-2025-32434
+  - Fixes serious vulnerability in torch.load() function
+  - **Breaking change for Intel Mac developers**: PyTorch 2.6+ does not provide x86_64 wheels
+  - Intel Mac developers must manually install torch==2.2.2 (with known security risk)
+  - **Intel Mac users (GUI)**: Unaffected - DMG builds continue to work normally
+  - App uses safetensors format for model loading which mitigates the vulnerability
+  - See README for Intel Mac development setup instructions
+
+## [0.3.1] - 2026-01-30
+
+### Changed
+- **macOS Title Bar**: Implemented elegant frameless design with hiddenInset style
+  - Removed app title text from title bar for cleaner appearance
+  - Positioned traffic lights at optimal location (16×16 offset)
+  - Added darker background color (#1a1a1a) for title bar area
+  - Optimized navigation spacing with traffic lights (90px left padding)
+  - Reduced titlebar height from 52px to 28px for minimal footprint
+- **Settings Page**: Cleaned up visual appearance
+  - Changed header to relative positioning (scrolls with content)
+  - Removed sticky background and border for seamless look
+  - Added proper spacing to avoid traffic lights overlap
+- **DMG Installer**: Enhanced first-time installation experience on macOS
+  - Added Installation Instructions file with prominent quarantine removal command
+  - Included LICENSE.txt in DMG for transparency
+  - Configured 4-item grid layout (app, Applications folder, README, LICENSE)
+  - Set larger window size (600×500) with light background for better readability
+
+### Fixed
+- Drag region conflicts between title bar and interactive elements
+- Navigation bar spacing issues with macOS traffic lights
+- Settings header visual inconsistencies when scrolling
+
+## [0.3.0] - 2026-01-30
+
+### Added
+- **Provider-Agnostic Architecture**: Implemented comprehensive refactoring for external API integrations
+  - MessageAdapter class for format conversion (OpenAI, Anthropic, Gemini, Perplexity)
+  - ParameterMapper for parameter translation across providers
+  - ResponseValidator for detecting meta-responses and quality issues
+- **Support & Feedback Section**: Added prominent section in Settings page with:
+  - Direct link to GitHub Issues for bug reports
+  - GitHub Sponsors button for project support
+  - Instructions for reporting bugs (screenshots, error messages, console logs)
+- **Platform Detection**: Added getPlatform() API for OS-specific features
+- **Test Suite**: Created comprehensive test suite for provider adapters (13 tests passing)
+
+### Changed
+- **Manual Updates Only**: Disabled automatic downloads for all platforms to prevent installation errors
+  - App still checks for updates automatically (startup + every 4 hours)
+  - Users directed to GitHub Releases for manual downloads
+  - Clear warning message with direct link when updates are available
+- **Enhanced Logging**: Improved provider validation logging with structured warnings
+- **Provider-Specific Prompts**: Added PROVIDER_OVERRIDES for Perplexity (anti-web-search) and Google (concise)
+- **API Key Display**: Improved security with masked keys ("***") in Settings UI
+- **Documentation**: Updated AUTO_UPDATES.md to reflect manual-only update flow
+
+### Fixed
+- **Critical Shutdown Race Conditions**:
+  - Fixed before-quit race by removing app.exit(0), allowing natural quit flow
+  - Made stopBackendSync actually wait for timeout before SIGKILL
+  - Increased backend shutdown delay from 0.5s to 2.0s for reliable cleanup
+  - Added port check retry with exponential backoff (500ms → 1s → 2s, max 6 attempts)
+- **External API Integration**: Fixed issues with Google Gemini and Perplexity returning meta-responses
+- **Provider Parameter Mapping**: Corrected temperature and parameter translation for all 7 providers
+- **Test Failures**: Fixed parameter mapper tests and citation detection thresholds
+
+### Technical
+- Added pytest>=9.0.0 to requirements.txt
+- Implemented isShuttingDown flag to prevent duplicate shutdown attempts
+- Enhanced error handling for provider rate limits and context errors
+- Improved process tree killing for Windows (taskkill /T) and Unix (negative PID)
+
+## [0.2.5] - 2026-01-19
+
+### Fixed
+- Fixed architecture mismatch issue causing "error -86" spawn failures on Intel Macs
+- Extended backend initialization timeout to 70 seconds (10 attempts × 1s + 20 attempts × 3s) across all platforms to prevent false-positive timeout errors
+- Unified HTTP health check timeout to 3000ms for consistency
+- Updated minimum macOS version to 11.0 in build configuration
+
+### Changed
+- **macOS Native Builds**: Now building separate native binaries for both architectures:
+  - **x64 (Intel)**: Built on `macos-15-intel` runner - native performance on Intel Macs
+  - **arm64 (Apple Silicon)**: Built on `macos-14` runner - native performance on M1/M2/M3/M4 Macs
+- **Technical Implementation**: Uses GitHub Actions matrix strategy with architecture-specific runners
+  - Each architecture builds natively (no cross-compilation)
+  - PyInstaller produces optimized binaries for host architecture
+  - Separate DMG/ZIP files for each architecture
+- **Distribution**: Users download the appropriate installer for their Mac's architecture
+- Added `minimumSystemVersion: 11.0` for macOS compatibility documentation
+
+### Technical Note
+Due to GitHub Actions retiring Intel Mac runners (macos-12, macos-13), we've switched to building only for Apple Silicon.
+Intel Mac users will automatically run the app through Rosetta 2, which provides excellent compatibility and performance.
+This is the standard approach for macOS apps as the industry transitions to Apple Silicon.
+
+## [0.2.4] - 2026-01-06
+
+### Changed
+- Reverted Debian packaging metadata to v0.2.0 configuration to eliminate potential dpkg parsing issues
+- Removed custom FPM fields from deb configuration
+- Simplified maintainer and vendor metadata
+
+### Fixed
+- Updated Linux installation guidance in README to remove outdated version references and AppImage instructions
+
+## [0.2.3] - 2026-01-06
+
+### Fixed
+- Fixed "address already in use" crash on startup when port 8000 is occupied
+- Added automatic cleanup of orphaned backend processes before app startup
+- Implemented dynamic port selection (8000-8010) if default port is unavailable
+- Enhanced graceful shutdown with proper port release verification
+- Added backend `/shutdown` endpoint for clean server termination
+- Improved signal handling (SIGTERM, SIGINT) to ensure cleanup on force quit
+- Backend now automatically retries with available ports if requested port is in use
+
+## [0.2.2] - 2026-01-05
+
+### Added
+- Application icons for macOS, Windows, and Linux builds
+
+### Fixed
+- Fixed duplicate indexing operations during vector database updates
+- Resolved indexing progress double-counting bug
+
+## [0.2.1] - 2026-01-05
+
+### Fixed
+- Fixed incremental sync progress bar getting stuck at low counts
+- Removed skip warnings from navbar during sync to prevent UI disruption
+- Warnings still logged to backend console for diagnostics
+
+## [0.2.0] - 2026-01-05
+
+### Added
+
+- **Profile-Specific Vector Databases** - Major improvement to profile isolation
+  - Each profile now has its own isolated ChromaDB instance
+  - Automatic profile-specific paths: `~/.zotero-llm/profiles/{profile-id}/chroma`
+  - Switch between profiles without reindexing - each maintains separate embeddings
+  - Support for different embedding models per profile without conflicts
+  - No more shared `user-1` paths
+
+- **Full Windows Support** - Native Windows builds and installers
+  - PyInstaller build scripts for Windows (PowerShell and batch file)
+  - NSIS installer with Desktop shortcut and Start Menu entry
+  - Portable ZIP distribution option
+  - Comprehensive Windows build documentation
+  - Automated Windows builds via GitHub Actions
+
+- **Improved GitHub Actions CI/CD**
+  - Automated builds for macOS, Windows, and Linux on tag push
+  - Parallel builds across all platforms
+  - Automatic GitHub release creation with all artifacts
+  - Build time ~15-25 minutes for all platforms
+
+### Changed
+
+- Vector database path now defaults to profile-specific location instead of hardcoded `user-1`
+- `load_settings()` function now automatically uses profile-specific chroma path
+- Settings UI displays correct profile-specific vector database path
+- Removed global `CHROMA_PATH` constant dependency (now profile-managed)
+
+### Fixed
+
+- Vector database paths not respecting profile system
+- Profiles sharing the same vector database causing data conflicts
+- Inability to use different embedding models in different profiles
+- Settings showing incorrect default chroma path
+
+### Documentation
+
+- Added comprehensive Windows build guide (`docs/WINDOWS_BUILD_GUIDE.md`)
+- Added Windows quick reference (`docs/WINDOWS_BUILD_QUICKREF.md`)
+- Added Windows support tracking document (`docs/WINDOWS_SUPPORT_TODO.md`)
+- Added complete release plan for v0.2.0 (`docs/RELEASE_PLAN_v0.2.0.md`)
+- Updated profile system documentation with vector database isolation details
+
+### Migration Notes
+
+- **Existing Users**: Old vector database at `~/.zotero-llm/chroma/user-1` will not be automatically migrated
+- **To Keep Old Data**: Manually copy `~/.zotero-llm/chroma/user-1` to `~/.zotero-llm/profiles/default/chroma`
+- **Fresh Start**: Just create a new profile and re-index your library
+
+## [0.1.10] - 2025-12-31
+
+### Fixed
+
+- **Memory Leak** - Fixed orphaned backend processes on app quit
+  - Process tree cleanup kills Python backend and ChromaDB child processes
+  - Unix: Uses negative PID to kill entire process group
+  - Windows: Uses `taskkill /T` for tree termination
+  - Prevents memory accumulation from repeated app launches
+
+### Changed
+
+- **Linux Packaging** - Reverted to venv approach (from PyInstaller bundle)
+  - PyInstaller bundle exceeded GitHub's 2GB file size limit (2.5GB DEB)
+  - Linux now uses system Python + venv with auto-setup and repair logic
+  - Validates uvicorn installation and auto-repairs if missing
+  - Mac/Windows still use PyInstaller bundles (self-contained)
+  - Smaller Linux DEB (~250MB vs 2.5GB)
+
+## [0.1.9] - 2025-12-16
+
+### Fixed
+
+- **Linux Backend Startup** - Bundled PyInstaller executable for Linux (like Mac/Windows)
+  - Eliminates dependency on system Python and manual venv setup
+  - Fixes "No module named uvicorn" errors on Linux installations
+  - More reliable: self-contained executable with all dependencies
+  - Larger DEB file size (~150MB more) but eliminates installation issues
+
+### Changed
+
+- **Linux Packaging** - Now uses PyInstaller bundle instead of system Python + venv
+  - Consistent backend deployment across all platforms
+  - Simplified Linux installation (no Python prerequisites)
+  - Auto-repair logic removed (no longer needed with bundled approach)
+
+## [0.1.8] - 2025-12-16
+
+### Added
+
+- **2025 Academic Prompting System** - Major upgrade to AI response quality
+  - Citation-aware RAG prompting with mandatory inline citations [N]
+  - Chain-of-thought reasoning for transparent logic
+  - Improved generation parameters (temp=0.35, top_p=0.9, top_k=50)
+  - Explicit handling of uncertainty and research gaps
+  - Structured responses: Direct answer → Evidence → Synthesis → Limitations
+  - New `AcademicPrompts` module with comprehensive prompt templates
+  - New `AcademicGenerationParams` with research-backed parameter sets
+
+### Changed
+
+- **System Prompt** - Enhanced from 54 to ~400 words with comprehensive academic guidelines
+  - Detailed citation requirements with examples
+  - Explicit responsibilities and quality gates
+  - Chain-of-thought reasoning instructions
+- **Generation Parameters** - Optimized for academic content synthesis:
+  - Temperature: 0.3 → 0.35 (reduces repetition, maintains factuality)
+  - Max tokens: 512 → 600 (allows detailed academic responses)
+  - Top-k: 40 → 50 (better vocabulary diversity)
+  - Repeat penalty: 1.1 → 1.15 (prevents citation repetition)
+- **All LLM Providers** - Updated defaults for better academic output:
+  - Ollama: Enhanced top_k and repeat_penalty
+  - OpenAI: Added frequency_penalty, optimized top_p
+  - Anthropic: Added top_k parameter
+  - Perplexity, Groq, OpenRouter: Enhanced sampling parameters
+
+### Improved
+
+- **Citation Accuracy** - Expected ~60% reduction in citation mismatches (based on CiteFix research)
+- **Response Quality** - More natural academic writing with proper grounding
+- **Transparency** - Clear distinction between findings, synthesis, and gaps
+- **Repetition Control** - Eliminated citation and concept repetition in long responses
+- **Uncertainty Handling** - Explicit "I don't know" when evidence is insufficient
+
+### Documentation
+
+- Added `docs/ACADEMIC_PROMPTING_2025.md` - Comprehensive implementation guide
+- Added `docs/PROMPTING_QUICKSTART.md` - User migration guide
+
+### Technical Notes
+
+- Based on 2025 research: CiteFix (ACL 2025), Perplexity Academic Mode, RAG evaluation frameworks
+- All changes are backward compatible - no breaking changes
+- No re-indexing required - works with existing vector databases
+- Pure Python code changes - no dependency updates needed
+
+## [0.1.7] - 2025-12-08
+
+### Fixed
+
+- **Linux Installation Path** - Removed spaces from productName to fix Electron zygote spawn issues
+  - Changed from `/opt/Zotero RAG Assistant/` to `/opt/RAGAssistant/` (updated in later version)
+  - Fixes "failed to execvp" and zygote_host_impl_linux.cc errors on launch
+  - Fixed postinstall script to correctly set chrome-sandbox permissions
+- **Security** - Removed vulnerable icon generation dependencies
+  - Removed `electron-icon-maker`, `icon-gen`, `svg2png`, `phantomjs-prebuilt`
+  - Using electron-builder's built-in icon generation
+  - Zero npm audit vulnerabilities
+
+### Changed
+
+- **Product Name** - Changed to simplify naming (updated to "RAG Assistant" in later version)
+
+## [0.1.6] - 2025-12-08
+
+### Fixed
+
+- **PyInstaller Backend Bundle** - Fixed backend startup issues in packaged Electron app
+  - Changed to import FastAPI app object directly instead of string reference
+  - Added PIL/Pillow to bundled dependencies (required by sentence-transformers)
+  - Backend now starts correctly in production builds
+- **Debian Package Dependencies** - Removed obsolete packages from `.deb` dependencies
+  - Removed `gconf2`, `gconf-service`, `libappindicator1` (no longer available in modern repos)
+  - Added `libgtk-3-0`, `libgbm1` (required Electron runtime libraries)
+  - Fixes "unmet dependencies" errors during `apt` installation on Ubuntu 22.04+
+
+## [0.1.6] - 2025-12-08
+
+### Fixed
+
+- **macOS DMG Installation** - Added Applications folder shortcut for easy drag-and-drop installation
+- **Auto-Updates** - Fixed missing `latest-mac.yml`, `latest.yml`, and `latest-linux.yml` files
+  - macOS: Enabled `writeUpdateInfo: true` for DMG
+  - Windows: Added `differentialPackage: true` for delta updates
+  - Linux: Proper auto-update metadata generation
+- **Python Bundling** - Migrated from venv symlinks to PyInstaller for truly portable bundles
+  - No more "Python interpreter missing" errors
+  - Self-contained executable includes all dependencies
+  - Works without system Python installation
+
+### Added
+
+- **Native Linux .deb packages** for Debian/Ubuntu with proper sandbox configuration
+  - Automatic chrome-sandbox setup via post-install script
+  - No `--no-sandbox` flag needed
+  - System integration via package manager
+  - Support for both amd64 and arm64 architectures
+- **PyInstaller-based Python bundling** for all platforms
+  - Complete standalone backend executable
+  - No symlinks to system Python
+  - Truly relocatable application bundle
+- **Comprehensive Linux packaging documentation** (docs/LINUX_PACKAGING.md)
+- **PyInstaller build guide** (docs/PYINSTALLER_BUNDLE_GUIDE.md)
+
+### Changed
+
+- **Documentation cleanup** - Consolidated and removed redundant docs
+  - Installation instructions now in README for all platforms
+  - Merged auto-update documentation into single comprehensive guide
+  - Removed 12 redundant/outdated documentation files
+  - Clear separation of user vs developer documentation
+
+## [0.1.3] - 2025-12-02
+
+### Fixed
+
+- **Linux AppImage Python detection** - Fixed "Python Not Found" errors on Linux systems
+  - Now correctly detects `python3` command (standard on modern Linux distros)
+  - Tries bundled Python first, falls back to system Python gracefully
+  - Added multiple fallback paths: `python3`, `python`, `/usr/bin/python3`, etc.
+  - Shows platform-specific installation instructions if Python is missing
+- **Development mode backend conflict** - Fixed port 8000 conflict in dev mode
+  - Electron no longer tries to start its own backend in development
+  - Uses the backend started by `npm run dev:backend` instead
+- **Working directory resolution** - Fixed backend module import errors in dev mode
+  - Correctly resolves project root directory on all platforms
+  - Backend can now find Python modules in development and production
+
+### Added
+
+- Comprehensive Python detection system with smart fallback logic
+- Platform-specific error messages for missing Python installations
+- Detailed logging for Python detection and backend startup process
+- New documentation:
+  - `docs/PYTHON_DETECTION.md` - Technical architecture
+  - `docs/LINUX_PYTHON_GUIDE.md` - User guide for Linux
+  - `docs/BUILD_CHECKLIST.md` - Build and testing procedures
+  - `docs/PYTHON_DETECTION_FLOW.txt` - Visual flow diagram
+
+## [0.1.0] - 2024-12-02
+
+### Added - Desktop App Release 
+
+- **Native desktop application** using Electron for macOS, Windows, and Linux
+- **Automatic updates** via GitHub Releases - future versions install automatically
+- **Bundled backend** - no need to install Python or dependencies manually
+- **Cross-platform installers**:
+  - macOS: DMG installer (Universal: Intel + Apple Silicon)
+  - Windows: NSIS installer with auto-updates
+  - Linux: AppImage (portable) and DEB packages
+- **One-command development** - `npm run dev` runs everything
+- **Professional packaging** with code signing support
+- **Comprehensive documentation** for development and deployment
+
+### Changed
+
+- Backend now supports HEAD requests for health checks
+- Development workflow simplified with concurrent script execution
+- Repository structure reorganized for desktop app
+
+### Fixed
+
+- Backend process management and cleanup on app quit
+- IPC communication security with context isolation
+- TypeScript compilation errors in Electron code
+
+## Previous Versions (Web App)
+
+### [0.0.x] - Pre-Desktop Era
+
+Previous versions were web-based only, requiring manual setup of Python backend and Node.js frontend.
+
+See git history for details: https://github.com/Quiet-Signals-Lab/RAG-Assistant-for-Zotero/commits/master
+
+---
+
+## Release Notes Format
+
+### Added
+- New features
+
+### Changed
+- Changes in existing functionality
+
+### Deprecated
+- Soon-to-be removed features
+
+### Removed
+- Removed features
+
+### Fixed
+- Bug fixes
+
+### Security
+- Security improvements

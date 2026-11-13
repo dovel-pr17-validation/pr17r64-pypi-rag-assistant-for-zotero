@@ -1,0 +1,552 @@
+name: Build All Platforms
+
+on:
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.1.4)'
+        required: true
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags
+
+permissions:
+  contents: write
+
+jobs:
+  build-all:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux
+          - os: macos-15  # Apple Silicon arm64
+            name: macos
+            arch: arm64
+          - os: windows-latest
+            name: windows
+    runs-on: ${{ matrix.os }}
+    # Cap the job so a stuck notarization (notarytool --wait has no timeout of its
+    # own) can't hang for hours. Linux/Windows finish well under this.
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install Node dependencies
+        run: |
+          npm install
+          cd frontend && npm install
+      
+      # macOS Python setup - Use PyInstaller bundle
+      - name: Create Python bundle with PyInstaller (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pyinstaller
+          python3 -m pip install -r requirements.txt
+          
+          # Build PyInstaller bundle (will build for native architecture of runner)
+          echo "Building for ${{ matrix.arch }} architecture on $(uname -m) runner"
+          pyinstaller --clean --noconfirm build/pyinstaller/backend_bundle.spec
+          
+          # Verify architecture
+          file python-dist/backend_server | head -1
+          
+          # Move PyInstaller output to python-dist
+          if [ -d "dist/backend_bundle" ]; then
+            mv dist/backend_bundle python-dist
+          fi
+      
+      # Linux: Verify Python is available (will be installed by app on first run)
+      - name: Verify Python available (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          python3 --version
+          echo "Python will be installed by the app on first run using system Python"
+      
+      # Windows Python setup - Use PyInstaller bundle
+      - name: Create Python bundle with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install -r requirements.txt
+          pyinstaller --clean --noconfirm build/pyinstaller/backend_bundle.spec
+          
+          # Move PyInstaller output to python-dist
+          if (Test-Path "dist\backend_bundle") {
+            Move-Item -Path "dist\backend_bundle" -Destination "python-dist"
+          }
+        shell: pwsh
+      
+      - name: Verify Python environment (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          if [ -f "python-dist/backend_server" ]; then
+            echo "✓ Backend executable created successfully"
+            ls -lh python-dist/ | head -10
+            
+            # Verify architecture
+            echo ""
+            echo "Verifying architecture..."
+            file python-dist/backend_server
+          else
+            echo "✗ Backend executable not found!"
+            exit 1
+          fi
+      
+      - name: Verify Python environment (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          if (Test-Path "python-dist\backend_server.exe") {
+            Write-Host "Backend executable created successfully"
+            Get-ChildItem python-dist -Recurse | Select-Object -First 10
+          } else {
+            Write-Error "Backend executable not found!"
+            exit 1
+          }
+        shell: pwsh
+      
+      - name: Build application
+        run: npm run build
+      
+      # Completely remove release directory to start fresh
+      - name: Remove release directory (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: rm -rf release
+      
+      - name: Remove release directory (Windows)
+        if: runner.os == 'Windows'
+        run: if (Test-Path "release") { Remove-Item -Path "release" -Recurse -Force -ErrorAction SilentlyContinue }
+        shell: pwsh
+      
+      # Platform-specific packaging
+      - name: Package Linux
+        if: runner.os == 'Linux'
+        run: npm run package:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          USE_HARD_LINKS: "false"
+      
+      - name: Package macOS
+        if: runner.os == 'macOS'
+        run: |
+          # Signing recursively touches every file in the app bundle, which blows
+          # past the default 256 fd limit -> EMFILE. torch/include headers are the
+          # bulk and are excluded from the bundle (see package.json); raise the fd
+          # limit too. On macOS the soft limit can't exceed kern.maxfilesperproc,
+          # so bump the kernel cap first, then ulimit.
+          sudo sysctl -w kern.maxfiles=524288 kern.maxfilesperproc=524288 || true
+          ulimit -n 65536 || ulimit -n "$(ulimit -Hn)" || true
+
+          max_attempts=3
+          attempt=1
+          success=false
+
+          while [ $attempt -le $max_attempts ] && [ "$success" != "true" ]; do
+            echo "Build attempt $attempt of $max_attempts for ${{ matrix.arch }}..."
+            # Sign only here (fast). Notarization is a separate explicit step below so
+            # it has a real timeout and visible notarytool output/logs.
+            if npm run package:mac -- --${{ matrix.arch }}; then
+              success=true
+              echo "Build succeeded on attempt $attempt"
+            else
+              if [ $attempt -eq $max_attempts ]; then
+                echo "Build failed after $max_attempts attempts"
+                exit 1
+              fi
+              echo "Build failed on attempt $attempt. Retrying in 10 seconds..."
+              sleep 10
+              # Clean up any mounted volumes (handle both old and new naming)
+              hdiutil detach "/Volumes/RAG Assistant"* 2>/dev/null || true
+              hdiutil detach /Volumes/ZoteroRAG* 2>/dev/null || true
+              rm -rf release/*.dmg 2>/dev/null || true
+              attempt=$((attempt + 1))
+            fi
+          done
+
+          # electron-updater skips a release whose manifest minimumSystemVersion
+          # is above the host's os.release(), which on macOS is the Darwin
+          # kernel version: 22.0.0 is macOS 13 Ventura, the floor since
+          # Electron 44. electron-builder writes the floor into the app plist
+          # but not into latest-mac.yml, so add it here. Without it a macOS 12
+          # machine would be offered the update and fail to launch afterwards.
+          echo 'minimumSystemVersion: 22.0.0' >> release/latest-mac.yml
+          node -e "require('js-yaml').load(require('fs').readFileSync('release/latest-mac.yml','utf8'))" \
+            && tail -3 release/latest-mac.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code signing (Developer ID Application cert exported as base64 .p12)
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Submit macOS notarization (non-blocking)
+        if: runner.os == 'macOS'
+        run: |
+          # Apple's notary service takes ~40 min-2h for this large ML bundle, and
+          # macOS runners bill at 10x, so we DON'T block on --wait. We submit the
+          # signed dmg and publish immediately; Apple finishes server-side within
+          # ~1-2h and Gatekeeper then passes online (our users are always online).
+          # Notarization is keyed to the app's code hash, so the identical app in
+          # the auto-update .zip is covered by the same submission. The app is
+          # intentionally not stapled (that would require blocking on Apple).
+          # Check status later:
+          #   xcrun notarytool history --apple-id <id> --team-id <team> --password <pw>
+          for f in release/*.dmg; do
+            echo "Submitting $f to notary service (non-blocking)"
+            xcrun notarytool submit "$f" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID"
+          done
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        run: |
+          $maxAttempts = 3
+          $attempt = 1
+          $success = $false
+          
+          while ($attempt -le $maxAttempts -and -not $success) {
+            Write-Host "Build attempt $attempt of $maxAttempts..."
+            try {
+              npm run package:win
+              $success = $true
+              Write-Host "Build succeeded on attempt $attempt"
+            }
+            catch {
+              if ($attempt -eq $maxAttempts) {
+                Write-Error "Build failed after $maxAttempts attempts"
+                exit 1
+              }
+              Write-Host "Build failed on attempt $attempt. Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+              $attempt++
+            }
+          }
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Upload artifacts
+      - name: Upload Linux artifacts
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            release/*.deb
+            release/latest-linux.yml
+          retention-days: 30
+      
+      - name: Upload macOS artifacts
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}-installers
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/latest-mac.yml
+          retention-days: 30
+      - name: Upload Windows artifacts
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            release/*.exe
+            release/*.zip
+            release/latest.yml
+          retention-days: 30
+
+  # Only a version tag publishes. A workflow_dispatch run on a branch builds and
+  # signs all three installers as workflow artifacts for testing without creating
+  # a release, touching the Homebrew cask, or opening a winget PR.
+  create-release:
+    needs: build-all
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure
+        run: ls -R artifacts
+
+      - name: Consolidate all release files
+        run: |
+          mkdir -p artifacts/release
+          # Move macOS latest-mac.yml (from arm64 build only)
+          mv artifacts/macos-arm64-installers/latest-mac.yml artifacts/release/
+          # Move macOS installers
+          mv artifacts/macos-arm64-installers/* artifacts/release/ || true
+          # Move Windows and Linux artifacts
+          mv artifacts/windows-installers/* artifacts/release/ || true
+          mv artifacts/linux-packages/* artifacts/release/ || true
+          # Show what we have
+          ls -la artifacts/release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Auto-update the Homebrew tap cask to point at the new (signed + notarized) DMG.
+  # Requires a HOMEBREW_TAP_TOKEN secret: a PAT with contents:write on the tap repo.
+  update-homebrew:
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Update tap cask
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO="Quiet-Signals-Lab/RAG-Assistant-for-Zotero"
+          TAP="Quiet-Signals-Lab/homebrew-rag-assistant-for-zotero"
+          # package.json is the one source for the description on every channel.
+          DESC="$(node -p "require('./package.json').description")"
+
+          # Download the released macOS DMG straight from the release and hash it.
+          gh release download "v${VERSION}" --repo "$REPO" --pattern "*.dmg" --dir dmg
+          DMG_PATH="$(ls dmg/*.dmg | head -1)"
+          DMG_NAME="$(basename "$DMG_PATH")"
+          SHA="$(sha256sum "$DMG_PATH" | awk '{print $1}')"
+          echo "cask -> ${DMG_NAME} (${SHA})"
+
+          # Regenerate the cask and push it to the tap.
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/${TAP}.git" tap
+          mkdir -p tap/Casks
+          cat > tap/Casks/rag-assistant-for-zotero.rb <<EOF
+          cask "rag-assistant-for-zotero" do
+            version "${VERSION}"
+            sha256 "${SHA}"
+
+            url "https://github.com/${REPO}/releases/download/v#{version}/${DMG_NAME}"
+            name "RAG Assistant for Zotero"
+            desc "${DESC}"
+            homepage "https://github.com/${REPO}"
+
+            livecheck do
+              url :url
+              strategy :github_latest
+            end
+
+            app "RAG Assistant.app"
+
+            zap trash: [
+              "~/Library/Application Support/RAG Assistant",
+              "~/Library/Preferences/com.aahepburn.zotero-rag.plist",
+              "~/Library/Saved Application State/com.aahepburn.zotero-rag.savedState",
+            ]
+          end
+          EOF
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/rag-assistant-for-zotero.rb
+          git diff --cached --quiet || git commit -m "Update rag-assistant-for-zotero to ${VERSION}"
+          git push
+
+  # Auto-open a winget-pkgs PR for the new Windows installer.
+  # Requires: a fork of microsoft/winget-pkgs under the token owner's account,
+  # and a WINGET_TOKEN secret (classic PAT with public_repo scope).
+  # winget submission. komac generates the manifests; `gh` opens the PR.
+  #
+  # We previously used vedantmgoyal9/winget-releaser, which wraps both halves.
+  # Its submit step began failing with "aahepburn does not have the correct
+  # permissions to execute `CreateRef`" even though the same token creates refs
+  # on the fork fine over REST (verified: HTTP 201). The cause, found at v0.6.0:
+  # syncing or branching the fork copies upstream workflow files, which needs
+  # the PAT's `workflow` scope (see docs/WINGET_SUBMISSION.md). Since
+  # komac's manifest generation was always correct, we keep that and drive the
+  # git side with `gh`, which is what the manual v0.5.2 submission used.
+  publish-winget:
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+      PKG_ID: aahepburn.RAGAssistantForZotero
+      FORK: aahepburn/winget-pkgs
+      UPSTREAM: microsoft/winget-pkgs
+      KOMAC_VERSION: 2.16.0
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve version and installer URL
+        id: v
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          URL=$(gh release view "v${VERSION}" --repo "${GITHUB_REPOSITORY}" \
+                  --json assets --jq '.assets[] | select(.name|test("\\.exe$")) | .url' | head -1)
+          [ -n "$URL" ] || { echo "::error::no .exe asset on release v${VERSION}"; exit 1; }
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Installer: $URL"
+
+      - name: Install komac
+        run: |
+          set -euo pipefail
+          curl -fsSL -o komac.tar.gz \
+            "https://github.com/russellbanks/Komac/releases/download/v${KOMAC_VERSION}/komac-${KOMAC_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          tar -xzf komac.tar.gz komac
+          sudo install -m755 komac /usr/local/bin/komac
+          komac --version
+
+      - name: Generate manifests
+        run: |
+          set -euo pipefail
+          komac update "$PKG_ID" --version "${{ steps.v.outputs.version }}" \
+            --urls "${{ steps.v.outputs.url }}" --dry-run --output ./wg
+          find ./wg -name '*.yaml' -print
+
+      # komac inherits the previous version's installer layout. An early manual
+      # 0.4.6 submission carried a stray portable entry, so komac can map BOTH
+      # the inherited nullsoft and portable entries onto our single .exe, which
+      # winget rejects as DuplicateInstallerEntry. Strip any nested/portable
+      # entry before submitting.
+      - name: Ensure a single installer entry
+        run: |
+          set -euo pipefail
+          f=$(find ./wg -name '*.installer.yaml' | head -1)
+          python3 - "$f" <<'PY'
+          import sys, yaml
+          p = sys.argv[1]
+          m = yaml.safe_load(open(p))
+          insts = m.get("Installers", [])
+          kept = [i for i in insts if "NestedInstallerType" not in i]
+          if kept and len(kept) != len(insts):
+              m["Installers"] = kept
+              yaml.safe_dump(m, open(p, "w"), sort_keys=False)
+              print(f"stripped {len(insts) - len(kept)} nested installer entry/entries")
+          else:
+              print(f"{len(insts)} installer entry/entries, nothing to strip")
+          PY
+
+      # komac inherits the locale fields from the previous version, so the text
+      # written for 0.4.5 would be copied forward forever. package.json is the
+      # one source for the description, tags, licence and URLs; the release
+      # notes come from this version's CHANGELOG section.
+      - name: Apply package metadata to the locale manifest
+        run: |
+          set -euo pipefail
+          f=$(find ./wg -name '*.locale.en-US.yaml' | head -1)
+          python3 - "$f" "${{ steps.v.outputs.version }}" <<'PY'
+          import json, re, sys, yaml
+          path, version = sys.argv[1], sys.argv[2]
+          pkg = json.load(open("package.json"))
+          home = pkg["homepage"]
+          m = yaml.safe_load(open(path))
+          m["Publisher"] = pkg["author"]["name"]
+          m["PublisherUrl"] = home.rsplit("/", 1)[0]
+          m["PublisherSupportUrl"] = f"{home}/issues"
+          m["PackageUrl"] = home
+          m["License"] = pkg["license"]
+          m["ShortDescription"] = pkg["description"]
+          m["Description"] = pkg["longDescription"]
+          m["Tags"] = pkg["keywords"][:16]
+          log = open("CHANGELOG.md").read()
+          section = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", log, re.S | re.M)
+          if section:
+              m["ReleaseNotes"] = section.group(1).strip()[:10000]
+          m["ReleaseNotesUrl"] = f"{home}/releases/tag/v{version}"
+
+          # Write it the way komac does. The validator requires the schema header
+          # comment on line 1 (SchemaHeaderNotFound otherwise), which yaml.safe_dump
+          # drops; literal blocks for multi-line text keep the file readable.
+          def scalar(v):
+              v = str(v)
+              if "\n" in v:
+                  return "|-\n" + "\n".join(("  " + l.rstrip()) if l.strip() else "" for l in v.strip().split("\n"))
+              plain = v and not re.search(r": |#|^[-?:,\[\]{}&*!|>'\"%@`]|^\s|\s$", v) and v.lower() not in ("true", "false", "null", "~", "yes", "no")
+              return v if plain else "'" + v.replace("'", "''") + "'"
+          lines = ["# Created with komac, locale fields from package.json",
+                   "# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json", ""]
+          for k, v in m.items():
+              if isinstance(v, list):
+                  lines.append(f"{k}:")
+                  lines += [f"- {scalar(x)}" for x in v]
+              else:
+                  lines.append(f"{k}: {scalar(v)}")
+          text = "\n".join(lines) + "\n"
+          assert yaml.safe_load(text) == {k: (str(v) if not isinstance(v, list) else v) for k, v in m.items()}, "rendered manifest does not round-trip"
+          open(path, "w", encoding="utf-8").write(text)
+          print(text)
+          PY
+
+      - name: Open winget PR
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          BRANCH="${PKG_ID}-${VERSION}"
+          OWNER="${FORK%%/*}"
+          # komac writes the real winget layout (manifests/<a>/<Pub>/<Pkg>/<ver>/),
+          # so use its paths rather than deriving them.
+          DIR=$(cd wg && find manifests -name '*.yaml' -exec dirname {} \; | sort -u)
+          [ "$(printf '%s' "$DIR" | wc -l)" -eq 0 ] || { echo "::error::expected one manifest dir, got: $DIR"; exit 1; }
+
+          # A stale fork makes for a noisy PR; winget-pkgs moves fast.
+          gh api -X POST "repos/${FORK}/merge-upstream" -f branch=master --jq .merge_type
+
+          # Recreate the branch so re-runs are idempotent.
+          gh api -X DELETE "repos/${FORK}/git/refs/heads/${BRANCH}" >/dev/null 2>&1 || true
+          BASE=$(gh api "repos/${FORK}/commits/master" --jq .sha)
+          gh api -X POST "repos/${FORK}/git/refs" -f ref="refs/heads/${BRANCH}" -f sha="$BASE" --jq .ref
+
+          for f in $(cd wg && find manifests -name '*.yaml'); do
+            gh api -X PUT "repos/${FORK}/contents/${f}" \
+              -f message="New version: ${PKG_ID} version ${VERSION}" \
+              -f branch="${BRANCH}" \
+              -f content="$(base64 -w0 "wg/${f}")" --jq .content.path
+          done
+
+          # Refuse to open a PR that touches anything outside this version's directory.
+          STRAY=$(gh api "repos/${UPSTREAM}/compare/master...${OWNER}:${BRANCH}" \
+                    --jq '[.files[].filename | select(startswith("'"${DIR}"'/") | not)] | length')
+          [ "$STRAY" = "0" ] || { echo "::error::branch touches files outside ${DIR}"; exit 1; }
+
+          gh pr create --repo "${UPSTREAM}" --base master \
+            --head "${OWNER}:${BRANCH}" \
+            --title "New version: ${PKG_ID} version ${VERSION}" \
+            --body "Manifests generated with [komac](https://github.com/russellbanks/Komac) v${KOMAC_VERSION} and submitted via \`gh\`."

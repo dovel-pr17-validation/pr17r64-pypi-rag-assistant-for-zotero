@@ -1,0 +1,439 @@
+@import "./theme.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1, "liga" 1;
+  font-kerning: normal;
+}
+
+/* One focus ring everywhere: 2px of ink with a gap, so it holds on paper and on dark. */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Disable drag on interactive elements */
+button, a, input, textarea, select {
+  -webkit-app-region: no-drag;
+}
+
+a {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--brass);
+  text-underline-offset: 3px;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
+}
+
+/* Scrollbars */
+
+::-webkit-scrollbar {
+  width: 11px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 0;
+  border: 3px solid var(--paper);
+}
+
+/* Utility */
+
+.muted {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Animations */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Legacy chat: the conversation ----------------------------------------- */
+
+.message {
+  padding: 18px 0 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* The rule separates turns; after the last one there is nothing to separate. */
+.message:last-of-type,
+.message--selected:last-of-type {
+  border-bottom: 0;
+}
+
+.message--assistant {
+  cursor: pointer;
+}
+
+.message--assistant:hover {
+  background: var(--bg-hover);
+}
+
+.message--selected,
+.message--selected:hover {
+  background: transparent; /* the chat column stays one colour; the rules mark the selected answer */
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  margin: -1px -24px 0;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.message__role {
+  margin-bottom: 8px;
+  font: 500 12px/1.4 var(--font-sans);
+  color: var(--ink-4);
+}
+
+.message__note {
+  text-transform: none;
+}
+
+.message--user .message__body {
+  font: 18px/1.4 var(--font-sans);
+  color: var(--ink);
+}
+
+.message__body {
+  max-width: 68ch;
+  font: 15px/1.6 var(--font-sans);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.message__body--working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 13px var(--font-sans);
+  color: var(--ink-3);
+}
+
+.message__body p {
+  margin: 0 0 0.8em;
+}
+
+.message__body p:last-child {
+  margin-bottom: 0;
+}
+
+.message__body h1,
+.message__body h2,
+.message__body h3 {
+  margin: 1.2em 0 0.4em;
+  font: 600 13px/1.4 var(--font-sans);
+  color: var(--ink-2);
+}
+
+.message__body h1:first-child,
+.message__body h2:first-child,
+.message__body h3:first-child {
+  margin-top: 0;
+}
+
+.message__body strong {
+  font-weight: 600;
+}
+
+.message__body ul,
+.message__body ol {
+  margin: 0 0 0.8em;
+  padding-left: 1.3em;
+}
+
+.message__body li {
+  margin-bottom: 0.3em;
+}
+
+.message__body li::marker {
+  color: var(--ink-4);
+}
+
+.message__body blockquote {
+  margin: 0 0 0.8em;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--ink-4);
+  color: var(--ink-2);
+}
+
+.message__body code {
+  font: 0.86em var(--font-mono);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 0 3px;
+}
+
+.message__body pre {
+  margin: 0 0 0.8em;
+  padding: 11px 12px;
+  overflow-x: auto;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+}
+
+.message__body pre code {
+  border: 0;
+  padding: 0;
+}
+
+.message__body a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--brass);
+  text-underline-offset: 3px;
+}
+
+.message__body hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 1em 0;
+}
+
+.message__body table {
+  border-collapse: collapse;
+  margin: 0 0 0.8em;
+  font: 13px var(--font-sans);
+}
+
+.message__body th,
+.message__body td {
+  border-bottom: 1px solid var(--rule);
+  padding: 5px 11px 5px 0;
+  text-align: left;
+}
+
+.message__body th {
+  border-bottom-color: var(--ink);
+}
+
+/* [1] [2]: the citation numbers that tie a sentence to a source. */
+.citation-ref {
+  font: 500 11px var(--font-sans);
+  color: var(--ink-3);
+  margin: 0 1px;
+  text-decoration: underline;
+  text-decoration-color: var(--brass);
+  text-underline-offset: 2px;
+}
+
+.message__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+/* Reasoning a model printed before its answer, folded away by default. */
+.reasoning-section {
+  margin-top: 12px;
+}
+
+.reasoning-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: 500 12px var(--font-sans);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.reasoning-content {
+  margin-top: 8px;
+  padding: 8px 0 8px 14px;
+  border-left: 1px dotted var(--rule-dotted);
+}
+
+.reasoning-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font: 500 12px var(--font-sans);
+  color: var(--ink-4);
+}
+
+.reasoning-text {
+  max-width: 68ch;
+  font: 13px/1.55 var(--font-sans);
+  color: var(--ink-3);
+}
+
+.reasoning-text p {
+  margin: 0 0 0.6em;
+}
+
+.reasoning-text p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- Legacy chat: side panels --------------------------------------------- */
+
+.side-panel {
+  padding: 14px 16px 24px;
+}
+
+.side-panel--flush {
+  padding: 0;
+}
+
+.side-panel__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.evidence-source {
+  margin-bottom: 18px;
+}
+
+.evidence-source__title {
+  margin: 0;
+  font: 15px/1.35 var(--font-serif);
+  color: var(--ink);
+}
+
+.evidence-source__cite {
+  font: 500 12px var(--font-sans);
+  color: var(--ink-3);
+}
+
+.evidence-source__meta {
+  margin: 2px 0 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ink);
+  font: 12px/1.5 var(--font-sans);
+  color: var(--ink-3);
+}
+
+.cited {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cited__row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cited__number {
+  font: 500 12px/1.6 var(--font-sans);
+  color: var(--ink-3);
+}
+
+.cited__title {
+  margin: 0;
+  font: 15px/1.35 var(--font-serif);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.cited__meta {
+  margin: 4px 0 0;
+  font: 12px/1.5 var(--font-sans);
+  color: var(--ink-3);
+}
+
+.cited__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 11px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.cited__link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--brass);
+  text-underline-offset: 3px;
+}
+
+/* Visually hidden, still read by screen readers. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A small working indicator, used inline beside a status line. */
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--rule);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  vertical-align: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+kbd {
+  font: 12px/1 var(--font-sans);
+  padding: 2px 5px;
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--page);
+  color: var(--ink);
+}
